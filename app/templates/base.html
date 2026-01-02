@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ title }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body class="app" data-menu-open="false">
+  <div class="bg-orb orb-one"></div>
+  <div class="bg-orb orb-two"></div>
+  <div class="bg-grid"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark"></span>
+      <div>
+        <div class="brand-title">SeyyedMT Control</div>
+        <div class="brand-subtitle">Local Admin Panel</div>
+      </div>
+    </div>
+    <button class="menu-toggle" id="menuToggle" type="button">Menu</button>
+  </header>
+
+  <nav class="menu-panel" id="menuPanel">
+    <a class="menu-item" href="/">Dashboard</a>
+    <a class="menu-item" href="/devices">Devices</a>
+    <a class="menu-item" href="/licenses">Licenses</a>
+    <a class="menu-item" href="/settings">Settings</a>
+  </nav>
+
+  <main class="content">
+    {% block content %}{% endblock %}
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

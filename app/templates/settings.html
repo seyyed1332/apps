@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>Settings</h1>
+    <p>Configure Marzban access and app defaults.</p>
+  </div>
+</section>
+
+<section class="card form-card">
+  <div class="card-head">
+    <h2>Core Settings</h2>
+  </div>
+  <form class="form-grid" method="post" action="/settings">
+    {% for field in fields %}
+    <label class="span-2">
+      <span>{{ field.label }}</span>
+      <input
+        type="{{ field.type }}"
+        name="{{ field.key }}"
+        value="{{ settings.get(field.key, '') }}"
+        placeholder=""
+      />
+    </label>
+    {% endfor %}
+    <div class="form-actions">
+      <button type="submit">Save Settings</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

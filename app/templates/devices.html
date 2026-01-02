@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>Devices</h1>
+    <p>Track device IDs, installs, and usage.</p>
+  </div>
+</section>
+
+<section class="card table-card">
+  <div class="card-head">
+    <form class="search" method="get" action="/devices">
+      <input type="text" name="q" placeholder="Search device, license, IP" value="{{ query }}" />
+      <button type="submit">Search</button>
+    </form>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Device ID</th>
+          <th>License</th>
+          <th>IP</th>
+          <th>App</th>
+          <th>Model</th>
+          <th>First Seen</th>
+          <th>Last Seen</th>
+          <th>Hits</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for device in devices %}
+        <tr>
+          <td>{{ device.device_id }}</td>
+          <td>{{ device.license_code }}</td>
+          <td>{{ device.ip or '-' }}</td>
+          <td>{{ device.app_version or '-' }}</td>
+          <td>{{ device.model or '-' }}</td>
+          <td>{{ device.first_seen_at }}</td>
+          <td>{{ device.last_seen_at }}</td>
+          <td>{{ device.seen_count }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

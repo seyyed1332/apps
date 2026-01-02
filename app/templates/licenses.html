@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>Licenses</h1>
+    <p>Create and manage access keys for the app.</p>
+  </div>
+</section>
+
+<section class="card form-card">
+  <div class="card-head">
+    <h2>Create License</h2>
+  </div>
+  <form class="form-grid" method="post" action="/licenses/new">
+    <label>
+      <span>Max Devices</span>
+      <input type="number" name="max_devices" min="1" value="1" />
+    </label>
+    <label>
+      <span>Marzban Username (optional)</span>
+      <input type="text" name="marzban_username" placeholder="user123" />
+    </label>
+    <label class="span-2">
+      <span>Note</span>
+      <input type="text" name="note" placeholder="VIP customer" />
+    </label>
+    <div class="form-actions">
+      <button type="submit">Generate</button>
+    </div>
+  </form>
+</section>
+
+<section class="card table-card">
+  <div class="card-head">
+    <h2>All Licenses</h2>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Code</th>
+          <th>Status</th>
+          <th>Devices</th>
+          <th>Max</th>
+          <th>Marzban User</th>
+          <th>Last Used</th>
+          <th>Note</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for license in licenses %}
+        <tr>
+          <td class="mono">{{ license.code }}</td>
+          <td>
+            <span class="status {{ license.status }}">{{ license.status }}</span>
+          </td>
+          <td>{{ license.device_count }}</td>
+          <td>{{ license.max_devices }}</td>
+          <td>{{ license.marzban_username or '-' }}</td>
+          <td>{{ license.last_used_at or '-' }}</td>
+          <td>{{ license.note or '-' }}</td>
+          <td>
+            <form method="post" action="/licenses/{{ license.code }}/toggle">
+              <button type="submit" class="ghost">
+                {% if license.status == 'active' %}Disable{% else %}Activate{% endif %}
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
