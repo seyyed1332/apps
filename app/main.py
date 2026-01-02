@@ -101,24 +101,18 @@ def normalize_settings(values: Dict[str, str]) -> Dict[str, str]:
     return normalized
 
 
-def test_marzban_connection(settings: Dict[str, str]) -> Tuple[bool, str]:
-    base_url = normalize_base_url(settings.get("marzban_base_url", ""))
-    if not base_url:
-        return False, "Marzban base URL is missing."
-
-    username = settings.get("marzban_username", "").strip()
-    password = settings.get("marzban_password", "").strip()
-    if not username or not password:
-        return False, "Marzban username or password is missing."
-
-    token_url = f"{base_url}/api/admin/token"
-    form = urllib.parse.urlencode(
-        {"grant_type": "password", "username": username, "password": password}
-    ).encode("utf-8")
-    request = urllib.request.Request(token_url, data=form, method="POST")
-    request.add_header("Content-Type", "application/x-www-form-urlencoded")
+def request_json(
+    url: str,
+    method: str = "GET",
+    data: Optional[bytes] = None,
+    headers: Optional[Dict[str, str]] = None,
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    request = urllib.request.Request(url, data=data, method=method)
     request.add_header("Accept", "application/json")
     request.add_header("User-Agent", "SeyyedMT-Panel")
+    if headers:
+        for key, value in headers.items():
+            request.add_header(key, value)
 
     try:
         with urllib.request.urlopen(request, timeout=12) as response:
@@ -131,21 +125,86 @@ def test_marzban_connection(settings: Dict[str, str]) -> Tuple[bool, str]:
             detail = ""
         message = f"HTTP {exc.code}"
         if detail:
-            message = f"{message}: {detail[:160]}"
-        return False, message
+            message = f"{message}: {detail[:200]}"
+        return None, message
     except urllib.error.URLError as exc:
-        return False, f"Connection failed: {exc.reason}"
+        return None, f"Connection failed: {exc.reason}"
+
+    if not body:
+        return {}, None
 
     try:
-        payload = json.loads(body) if body else {}
+        return json.loads(body), None
     except json.JSONDecodeError:
-        return False, "Unexpected response from Marzban."
+        return None, "Unexpected response from Marzban."
 
-    if payload.get("access_token"):
-        return True, "Marzban authenticated successfully."
 
-    detail = payload.get("detail") or payload.get("message") or "Authentication failed."
-    return False, str(detail)
+def marzban_token(settings: Dict[str, str]) -> Tuple[Optional[str], str]:
+    base_url = normalize_base_url(settings.get("marzban_base_url", ""))
+    if not base_url:
+        return None, "Marzban base URL is missing."
+
+    username = settings.get("marzban_username", "").strip()
+    password = settings.get("marzban_password", "").strip()
+    if not username or not password:
+        return None, "Marzban username or password is missing."
+
+    token_url = f"{base_url}/api/admin/token"
+    form = urllib.parse.urlencode(
+        {"grant_type": "password", "username": username, "password": password}
+    ).encode("utf-8")
+    payload, error = request_json(
+        token_url,
+        method="POST",
+        data=form,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    if error:
+        return None, error
+    if payload and payload.get("access_token"):
+        return payload.get("access_token"), "Marzban authenticated successfully."
+
+    detail = ""
+    if isinstance(payload, dict):
+        detail = payload.get("detail") or payload.get("message") or ""
+    return None, detail or "Authentication failed."
+
+
+def marzban_inbounds(base_url: str, token: str) -> Tuple[Optional[list], Optional[str]]:
+    url = f"{base_url}/api/inbounds"
+    payload, error = request_json(
+        url,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    if error:
+        return None, error
+    if not isinstance(payload, dict):
+        return None, "Unexpected inbounds response."
+
+    inbounds = []
+    seen = set()
+    for protocol, items in payload.items():
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            tag = str(item.get("tag") or "").strip()
+            if not tag or tag in seen:
+                continue
+            seen.add(tag)
+            inbounds.append(
+                {
+                    "tag": tag,
+                    "protocol": str(item.get("protocol") or protocol or "").strip(),
+                    "network": str(item.get("network") or "").strip(),
+                    "tls": str(item.get("tls") or "").strip(),
+                    "port": str(item.get("port") or "").strip(),
+                }
+            )
+
+    inbounds.sort(key=lambda inbound: (inbound.get("protocol"), inbound.get("tag")))
+    return inbounds, None
 
 
 def require_admin(credentials: HTTPBasicCredentials = Depends(security)) -> str:
@@ -185,6 +244,16 @@ def update_settings(new_values: Dict[str, str]) -> None:
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
                 (key, value, now_iso()),
             )
+        conn.commit()
+
+
+def set_app_setting(key: str, value: str) -> None:
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+            (key, value, now_iso()),
+        )
         conn.commit()
 
 
@@ -365,6 +434,23 @@ def settings(request: Request, _: str = Depends(require_admin)):
     settings_data = get_settings()
     marzban_status = request.query_params.get("marzban", "")
     marzban_message = request.query_params.get("message", "")
+    if not marzban_status:
+        marzban_status = settings_data.get("marzban_last_status", "")
+    if not marzban_message:
+        marzban_message = settings_data.get("marzban_last_message", "")
+
+    allowed_raw = settings_data.get("allowed_inbounds", "")
+    allowed_inbounds = {item.strip() for item in allowed_raw.split(",") if item.strip()}
+
+    inbounds_cache = settings_data.get("marzban_inbounds_cache", "")
+    marzban_inbounds: list = []
+    if inbounds_cache:
+        try:
+            parsed = json.loads(inbounds_cache)
+            if isinstance(parsed, list):
+                marzban_inbounds = parsed
+        except json.JSONDecodeError:
+            marzban_inbounds = []
     return templates.TemplateResponse(
         "settings.html",
         {
@@ -374,6 +460,8 @@ def settings(request: Request, _: str = Depends(require_admin)):
             "fields": SETTINGS_FIELDS,
             "marzban_status": marzban_status,
             "marzban_message": marzban_message,
+            "allowed_inbounds": allowed_inbounds,
+            "marzban_inbounds": marzban_inbounds,
         },
     )
 
@@ -381,19 +469,47 @@ def settings(request: Request, _: str = Depends(require_admin)):
 @app.post("/settings/marzban/test")
 def marzban_test(_: str = Depends(require_admin)):
     settings_data = get_settings()
-    ok, message = test_marzban_connection(settings_data)
+    token, message = marzban_token(settings_data)
+    ok = token is not None
+    base_url = normalize_base_url(settings_data.get("marzban_base_url", ""))
+
+    if ok and token and base_url:
+        inbounds, inbound_error = marzban_inbounds(base_url, token)
+        if inbounds is not None:
+            set_app_setting("marzban_inbounds_cache", json.dumps(inbounds))
+            message = f"{message} Loaded {len(inbounds)} inbounds."
+        elif inbound_error:
+            message = f"{message} Inbounds fetch failed: {inbound_error}"
+
+    set_app_setting("marzban_last_status", "ok" if ok else "fail")
+    set_app_setting("marzban_last_message", message)
+
     params = urllib.parse.urlencode(
         {"marzban": "ok" if ok else "fail", "message": message}
     )
     return RedirectResponse(url=f"/settings?{params}", status_code=303)
 
 
+@app.post("/settings/inbounds")
+async def save_inbounds(request: Request, _: str = Depends(require_admin)):
+    form = await request.form()
+    selected = form.getlist("allowed_inbounds")
+    tags = sorted({item.strip() for item in selected if item.strip()})
+    set_app_setting("allowed_inbounds", ",".join(tags))
+    set_app_setting("marzban_last_message", "Allowed inbounds updated.")
+    return RedirectResponse(url="/settings?marzban=ok&message=Allowed+inbounds+updated", status_code=303)
+
+
 @app.post("/settings")
 async def save_settings(request: Request, _: str = Depends(require_admin)):
     form = await request.form()
+    current = get_settings()
     settings_data: Dict[str, str] = {}
     for field in SETTINGS_FIELDS:
         key = field["key"]
+        if key == "allowed_inbounds" and key not in form:
+            settings_data[key] = current.get(key, "")
+            continue
         value = form.get(key, "")
         settings_data[key] = str(value)
     update_settings(settings_data)

@@ -34,6 +34,33 @@
       <button type="submit">Test Marzban API</button>
     </div>
   </form>
+  {% if marzban_inbounds %}
+  <form class="form-grid inbound-grid" method="post" action="/settings/inbounds">
+    <div class="inbound-list span-2">
+      {% for inbound in marzban_inbounds %}
+      <label class="inbound-item">
+        <input
+          type="checkbox"
+          name="allowed_inbounds"
+          value="{{ inbound.tag }}"
+          {% if inbound.tag in allowed_inbounds %}checked{% endif %}
+        />
+        <div>
+          <div class="inbound-title">{{ inbound.tag }}</div>
+          <div class="inbound-meta">
+            {{ inbound.protocol|upper }} · {{ inbound.network }} · {{ inbound.tls }} · {{ inbound.port }}
+          </div>
+        </div>
+      </label>
+      {% endfor %}
+    </div>
+    <div class="form-actions">
+      <button type="submit">Save Allowed Inbounds</button>
+    </div>
+  </form>
+  {% else %}
+  <div class="form-note">Run the test above to load inbound tags from Marzban.</div>
+  {% endif %}
 </section>
 
 <section class="card form-card">
@@ -42,6 +69,7 @@
   </div>
   <form class="form-grid" method="post" action="/settings">
     {% for field in fields %}
+    {% if field.key != "allowed_inbounds" %}
     <label class="span-2">
       <span>{{ field.label }}</span>
       <input
@@ -51,6 +79,7 @@
         placeholder=""
       />
     </label>
+    {% endif %}
     {% endfor %}
     <div class="form-actions">
       <button type="submit">Save Settings</button>

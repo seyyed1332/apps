@@ -368,6 +368,44 @@ body[data-menu-open="true"] .menu-panel {
   font-size: 13px;
 }
 
+.inbound-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.inbound-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  background: rgba(12, 8, 22, 0.7);
+  cursor: pointer;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.inbound-item:hover {
+  border-color: rgba(139, 92, 246, 0.55);
+  transform: translateY(-1px);
+}
+
+.inbound-item input {
+  accent-color: var(--accent);
+  margin-top: 2px;
+}
+
+.inbound-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.inbound-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .form-actions {
   grid-column: span 2;
   display: flex;
