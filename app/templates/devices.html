@@ -10,7 +10,7 @@
 <section class="card table-card">
   <div class="card-head">
     <form class="search" method="get" action="/devices">
-      <input type="text" name="q" placeholder="Search device, license, IP" value="{{ query }}" />
+      <input type="text" name="q" placeholder="Search device, license, user, IP" value="{{ query }}" />
       <button type="submit">Search</button>
     </form>
   </div>
@@ -20,6 +20,8 @@
         <tr>
           <th>Device ID</th>
           <th>License</th>
+          <th>User</th>
+          <th>Group</th>
           <th>IP</th>
           <th>App</th>
           <th>Model</th>
@@ -33,6 +35,8 @@
         <tr>
           <td>{{ device.device_id }}</td>
           <td>{{ device.license_code }}</td>
+          <td>{{ device.marzban_username or '-' }}</td>
+          <td>{{ device.group_name or '-' }}</td>
           <td>{{ device.ip or '-' }}</td>
           <td>{{ device.app_version or '-' }}</td>
           <td>{{ device.model or '-' }}</td>

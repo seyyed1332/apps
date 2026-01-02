@@ -34,30 +34,63 @@
       <button type="submit">Test Marzban API</button>
     </div>
   </form>
-  {% if marzban_inbounds %}
-  <form class="form-grid inbound-grid" method="post" action="/settings/inbounds">
-    <div class="inbound-list span-2">
-      {% for inbound in marzban_inbounds %}
-      <label class="inbound-item">
-        <input
-          type="checkbox"
-          name="allowed_inbounds"
-          value="{{ inbound.tag }}"
-          {% if inbound.tag in allowed_inbounds %}checked{% endif %}
-        />
-        <div>
-          <div class="inbound-title">{{ inbound.tag }}</div>
-          <div class="inbound-meta">
-            {{ inbound.protocol|upper }} · {{ inbound.network }} · {{ inbound.tls }} · {{ inbound.port }}
-          </div>
-        </div>
-      </label>
-      {% endfor %}
-    </div>
+  <div class="form-note">Run the test above to load inbound tags from Marzban.</div>
+</section>
+
+<section class="card form-card">
+  <div class="card-head centered">
+    <h2>Groups</h2>
+    <span class="status pending">Default: {{ default_group }}</span>
+  </div>
+  <form class="form-grid compact centered" method="post" action="/groups/new">
+    <label class="span-2">
+      <span>New group name</span>
+      <input type="text" name="group_name" placeholder="free" />
+    </label>
     <div class="form-actions">
-      <button type="submit">Save Allowed Inbounds</button>
+      <button type="submit">Create Group</button>
     </div>
   </form>
+
+  {% if marzban_inbounds and groups %}
+  <div class="group-tabs" data-group-tabs>
+    {% for group in groups %}
+    <button type="button" class="group-tab{% if loop.first %} active{% endif %}" data-group-tab="{{ group.name }}">
+      {{ group.name }}
+    </button>
+    {% endfor %}
+  </div>
+
+  {% for group in groups %}
+  <div class="group-panel{% if not loop.first %} hidden{% endif %}" data-group-panel="{{ group.name }}">
+    <div class="group-meta">
+      <div class="group-title">{{ group.name }}</div>
+      <form method="post" action="/groups/{{ group.name }}/default">
+        <button type="submit" class="ghost">Set Default</button>
+      </form>
+    </div>
+    <form class="form-grid inbound-grid" method="post" action="/groups/{{ group.name }}/inbounds">
+      <div class="inbound-row span-2">
+        {% for inbound in marzban_inbounds %}
+        <label class="inbound-pill">
+          <input
+            type="checkbox"
+            name="allowed_inbounds"
+            value="{{ inbound.tag }}"
+            {% if inbound.tag in group_allowed.get(group.name, []) %}checked{% endif %}
+          />
+          <span>
+            {{ inbound.tag }} ({{ inbound.protocol|upper }} / {{ inbound.network }} / {{ inbound.tls }} / {{ inbound.port }})
+          </span>
+        </label>
+        {% endfor %}
+      </div>
+      <div class="form-actions">
+        <button type="submit">Save Inbounds</button>
+      </div>
+    </form>
+  </div>
+  {% endfor %}
   {% else %}
   <div class="form-note">Run the test above to load inbound tags from Marzban.</div>
   {% endif %}

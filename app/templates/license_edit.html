@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>License {{ license.code }}</h1>
+    <p>Manage user settings, group, and allowed inbounds.</p>
+  </div>
+</section>
+
+<section class="card form-card">
+  <div class="card-head">
+    <h2>License Settings</h2>
+    <span class="status {{ license.status }}">{{ license.status }}</span>
+  </div>
+  <form class="form-grid" method="post" action="/licenses/{{ license.code }}">
+    <label>
+      <span>User Login</span>
+      <input type="text" name="marzban_username" value="{{ license.marzban_username or '' }}" />
+    </label>
+    <label>
+      <span>Group</span>
+      <select name="group_name">
+        {% for group in groups %}
+        <option value="{{ group.name }}" {% if group.name == group_name %}selected{% endif %}>
+          {{ group.name }}
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      <span>Max Devices</span>
+      <input type="number" name="max_devices" min="1" value="{{ license.max_devices }}" />
+    </label>
+    <label>
+      <span>Status</span>
+      <select name="status">
+        <option value="active" {% if license.status == "active" %}selected{% endif %}>active</option>
+        <option value="disabled" {% if license.status == "disabled" %}selected{% endif %}>disabled</option>
+      </select>
+    </label>
+    <label class="span-2">
+      <span>Note</span>
+      <input type="text" name="note" value="{{ license.note or '' }}" />
+    </label>
+
+    {% if marzban_inbounds %}
+    <div class="span-2">
+      <label class="checkbox">
+        <input type="checkbox" name="inherit_inbounds" {% if inherit_group %}checked{% endif %} />
+        <span>Use group inbounds ({{ group_name }})</span>
+      </label>
+    </div>
+    <div class="inbound-row span-2">
+      {% for inbound in marzban_inbounds %}
+      <label class="inbound-pill">
+        <input
+          type="checkbox"
+          name="allowed_inbounds"
+          value="{{ inbound.tag }}"
+          {% if inbound.tag in selected_inbounds %}checked{% endif %}
+        />
+        <span>
+          {{ inbound.tag }} ({{ inbound.protocol|upper }} / {{ inbound.network }} / {{ inbound.tls }} / {{ inbound.port }})
+        </span>
+      </label>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="form-note span-2">
+      Run Marzban test in Settings to load inbounds.
+    </div>
+    {% endif %}
+
+    <div class="form-actions">
+      <button type="submit">Save License</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

@@ -8,17 +8,27 @@
 </section>
 
 <section class="card form-card">
-  <div class="card-head">
+  <div class="card-head centered">
     <h2>Create License</h2>
   </div>
-  <form class="form-grid" method="post" action="/licenses/new">
+  <form class="form-grid centered" method="post" action="/licenses/new">
     <label>
       <span>Max Devices</span>
       <input type="number" name="max_devices" min="1" value="1" />
     </label>
     <label>
-      <span>Marzban Username (optional)</span>
+      <span>User Login (optional)</span>
       <input type="text" name="marzban_username" placeholder="user123" />
+    </label>
+    <label>
+      <span>Group</span>
+      <select name="group_name">
+        {% for group in groups %}
+        <option value="{{ group.name }}" {% if group.name == default_group %}selected{% endif %}>
+          {{ group.name }}
+        </option>
+        {% endfor %}
+      </select>
     </label>
     <label class="span-2">
       <span>Note</span>
@@ -31,18 +41,23 @@
 </section>
 
 <section class="card table-card">
-  <div class="card-head">
+  <div class="card-head centered">
     <h2>All Licenses</h2>
+    <form class="search" method="get" action="/licenses">
+      <input type="text" name="q" placeholder="Search code, user, group" value="{{ query }}" />
+      <button type="submit">Search</button>
+    </form>
   </div>
   <div class="table-wrap">
-    <table>
+    <table class="table-centered">
       <thead>
         <tr>
           <th>Code</th>
           <th>Status</th>
           <th>Devices</th>
           <th>Max</th>
-          <th>Marzban User</th>
+          <th>User</th>
+          <th>Group</th>
           <th>Last Used</th>
           <th>Note</th>
           <th>Action</th>
@@ -58,14 +73,18 @@
           <td>{{ license.device_count }}</td>
           <td>{{ license.max_devices }}</td>
           <td>{{ license.marzban_username or '-' }}</td>
+          <td>{{ license.group_name or '-' }}</td>
           <td>{{ license.last_used_at or '-' }}</td>
           <td>{{ license.note or '-' }}</td>
           <td>
-            <form method="post" action="/licenses/{{ license.code }}/toggle">
-              <button type="submit" class="ghost">
-                {% if license.status == 'active' %}Disable{% else %}Activate{% endif %}
-              </button>
-            </form>
+            <div class="action-group">
+              <a class="ghost-link" href="/licenses/{{ license.code }}">Manage</a>
+              <form method="post" action="/licenses/{{ license.code }}/toggle">
+                <button type="submit" class="ghost">
+                  {% if license.status == 'active' %}Disable{% else %}Activate{% endif %}
+                </button>
+              </form>
+            </div>
           </td>
         </tr>
         {% endfor %}

@@ -34,6 +34,8 @@
         <tr>
           <th>Device ID</th>
           <th>License</th>
+          <th>User</th>
+          <th>Group</th>
           <th>IP</th>
           <th>App</th>
           <th>Model</th>
@@ -45,6 +47,8 @@
         <tr>
           <td>{{ device.device_id }}</td>
           <td>{{ device.license_code }}</td>
+          <td>{{ device.marzban_username or '-' }}</td>
+          <td>{{ device.group_name or '-' }}</td>
           <td>{{ device.ip or '-' }}</td>
           <td>{{ device.app_version or '-' }}</td>
           <td>{{ device.model or '-' }}</td>

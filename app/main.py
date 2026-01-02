@@ -45,6 +45,9 @@ DEFAULT_SETTINGS = {
     "default_data_limit_gb": os.getenv("MARZBAN_DEFAULT_DATA_LIMIT_GB", "0"),
     "default_expire_days": os.getenv("MARZBAN_DEFAULT_EXPIRE_DAYS", "0"),
     "user_prefix": os.getenv("MARZBAN_USER_PREFIX", "app_"),
+    "marzban_last_status": "",
+    "marzban_last_message": "",
+    "marzban_inbounds_cache": "",
 }
 
 NUMERIC_SETTING_KEYS = {
@@ -257,6 +260,45 @@ def set_app_setting(key: str, value: str) -> None:
         conn.commit()
 
 
+def parse_allowed(value: Optional[str]) -> set:
+    if not value:
+        return set()
+    return {item.strip() for item in value.split(",") if item.strip()}
+
+
+def get_groups() -> list:
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT name, allowed_inbounds, is_default FROM groups ORDER BY name"
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_group_allowed_map(groups: list) -> Dict[str, set]:
+    allowed_map: Dict[str, set] = {}
+    for group in groups:
+        allowed_map[group["name"]] = parse_allowed(group.get("allowed_inbounds"))
+    return allowed_map
+
+
+def get_default_group_name(groups: list) -> str:
+    for group in groups:
+        if group.get("is_default"):
+            return group.get("name", "free")
+    return groups[0]["name"] if groups else "free"
+
+
+def load_inbounds_cache(settings_data: Dict[str, str]) -> list:
+    inbounds_cache = settings_data.get("marzban_inbounds_cache", "")
+    if not inbounds_cache:
+        return []
+    try:
+        parsed = json.loads(inbounds_cache)
+        return parsed if isinstance(parsed, list) else []
+    except json.JSONDecodeError:
+        return []
+
+
 def get_license(code: str) -> Optional[Dict[str, Any]]:
     with get_db() as conn:
         row = conn.execute("SELECT * FROM licenses WHERE code = ?", (code,)).fetchone()
@@ -344,8 +386,11 @@ def dashboard(request: Request, _: str = Depends(require_admin)):
             "SELECT COUNT(DISTINCT install_id) AS total FROM devices WHERE install_id IS NOT NULL"
         ).fetchone()["total"]
         recent_devices = conn.execute(
-            "SELECT device_id, license_code, ip, app_version, model, last_seen_at "
-            "FROM devices ORDER BY last_seen_at DESC LIMIT 6"
+            "SELECT d.device_id, d.license_code, l.marzban_username, l.group_name, d.ip, d.app_version, "
+            "d.model, d.last_seen_at "
+            "FROM devices d "
+            "LEFT JOIN licenses l ON l.code = d.license_code "
+            "ORDER BY d.last_seen_at DESC LIMIT 6"
         ).fetchall()
 
     return templates.TemplateResponse(
@@ -365,11 +410,16 @@ def dashboard(request: Request, _: str = Depends(require_admin)):
 def devices(request: Request, q: str = "", _: str = Depends(require_admin)):
     with get_db() as conn:
         query = (
-            "SELECT * FROM devices "
-            "WHERE device_id LIKE ? OR license_code LIKE ? OR ip LIKE ? "
-            "ORDER BY last_seen_at DESC"
+            "SELECT d.*, l.marzban_username, l.group_name "
+            "FROM devices d "
+            "LEFT JOIN licenses l ON l.code = d.license_code "
+            "WHERE d.device_id LIKE ? OR d.license_code LIKE ? OR d.ip LIKE ? OR l.marzban_username LIKE ? "
+            "ORDER BY d.last_seen_at DESC"
         )
-        rows = conn.execute(query, (f"%{q}%", f"%{q}%", f"%{q}%")).fetchall()
+        rows = conn.execute(
+            query,
+            (f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"),
+        ).fetchall()
 
     return templates.TemplateResponse(
         "devices.html",
@@ -383,19 +433,30 @@ def devices(request: Request, q: str = "", _: str = Depends(require_admin)):
 
 
 @app.get("/licenses")
-def licenses(request: Request, _: str = Depends(require_admin)):
+def licenses(request: Request, q: str = "", _: str = Depends(require_admin)):
     with get_db() as conn:
         rows = conn.execute(
             "SELECT l.*, COUNT(d.id) AS device_count "
             "FROM licenses l "
             "LEFT JOIN devices d ON d.license_code = l.code "
+            "WHERE l.code LIKE ? OR l.marzban_username LIKE ? OR l.group_name LIKE ? OR l.note LIKE ? "
             "GROUP BY l.id "
-            "ORDER BY l.created_at DESC"
+            "ORDER BY l.created_at DESC",
+            (f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"),
         ).fetchall()
 
+    groups = get_groups()
+    default_group = get_default_group_name(groups)
     return templates.TemplateResponse(
         "licenses.html",
-        {"request": request, "title": APP_TITLE, "licenses": rows},
+        {
+            "request": request,
+            "title": APP_TITLE,
+            "licenses": rows,
+            "groups": groups,
+            "default_group": default_group,
+            "query": q,
+        },
     )
 
 
@@ -404,14 +465,36 @@ def create_license(
     max_devices: int = Form(1),
     note: str = Form(""),
     marzban_username: str = Form(""),
+    group_name: str = Form(""),
     _: str = Depends(require_admin),
 ):
     code = generate_license_code()
     with get_db() as conn:
+        group_row = None
+        if group_name:
+            group_row = conn.execute(
+                "SELECT name, allowed_inbounds FROM groups WHERE name = ?",
+                (group_name,),
+            ).fetchone()
+        if not group_row:
+            group_row = conn.execute(
+                "SELECT name, allowed_inbounds FROM groups WHERE is_default = 1 LIMIT 1"
+            ).fetchone()
+        final_group = group_row["name"] if group_row else "free"
+        final_inbounds = group_row["allowed_inbounds"] if group_row else ""
         conn.execute(
-            "INSERT INTO licenses (code, status, max_devices, created_at, note, marzban_username) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (code, "active", max_devices, now_iso(), note, marzban_username),
+            "INSERT INTO licenses (code, status, max_devices, created_at, note, marzban_username, group_name, allowed_inbounds) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                code,
+                "active",
+                max_devices,
+                now_iso(),
+                note,
+                marzban_username,
+                final_group,
+                final_inbounds,
+            ),
         )
         conn.commit()
     return RedirectResponse(url="/licenses", status_code=303)
@@ -429,6 +512,87 @@ def toggle_license(code: str, _: str = Depends(require_admin)):
     return RedirectResponse(url="/licenses", status_code=303)
 
 
+@app.get("/licenses/{code}")
+def edit_license(request: Request, code: str, _: str = Depends(require_admin)):
+    license_row = get_license(code)
+    if not license_row:
+        raise HTTPException(status_code=404, detail="License not found")
+    settings_data = get_settings()
+    marzban_inbounds = load_inbounds_cache(settings_data)
+    groups = get_groups()
+    group_allowed = get_group_allowed_map(groups)
+    default_group = get_default_group_name(groups)
+
+    group_name = license_row.get("group_name") or default_group
+    license_allowed = parse_allowed(license_row.get("allowed_inbounds"))
+    selected_inbounds = license_allowed or group_allowed.get(group_name, set())
+    inherit_group = len(license_allowed) == 0
+
+    return templates.TemplateResponse(
+        "license_edit.html",
+        {
+            "request": request,
+            "title": f"License {code}",
+            "license": license_row,
+            "groups": groups,
+            "group_name": group_name,
+            "marzban_inbounds": marzban_inbounds,
+            "selected_inbounds": selected_inbounds,
+            "inherit_group": inherit_group,
+            "default_group": default_group,
+        },
+    )
+
+
+@app.post("/licenses/{code}")
+async def update_license(request: Request, code: str, _: str = Depends(require_admin)):
+    license_row = get_license(code)
+    if not license_row:
+        raise HTTPException(status_code=404, detail="License not found")
+
+    form = await request.form()
+    max_devices_raw = str(form.get("max_devices", "")).strip()
+    try:
+        max_devices = max(1, int(max_devices_raw))
+    except ValueError:
+        max_devices = int(license_row.get("max_devices") or 1)
+
+    status = str(form.get("status", "")).strip().lower()
+    if status not in {"active", "disabled"}:
+        status = license_row.get("status", "active")
+
+    group_name = str(form.get("group_name", "")).strip()
+    groups = get_groups()
+    group_names = {group["name"] for group in groups}
+    default_group = get_default_group_name(groups)
+    if group_name not in group_names:
+        group_name = license_row.get("group_name") or default_group
+    marzban_username = str(form.get("marzban_username", "")).strip()
+    note = str(form.get("note", "")).strip()
+
+    inherit_group = form.get("inherit_inbounds") == "on"
+    selected = form.getlist("allowed_inbounds")
+    tags = sorted({item.strip() for item in selected if item.strip()})
+    allowed_inbounds = "" if inherit_group else ",".join(tags)
+
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE licenses SET status = ?, max_devices = ?, marzban_username = ?, note = ?, "
+            "group_name = ?, allowed_inbounds = ? WHERE code = ?",
+            (
+                status,
+                max_devices,
+                marzban_username,
+                note,
+                group_name,
+                allowed_inbounds,
+                code,
+            ),
+        )
+        conn.commit()
+    return RedirectResponse(url=f"/licenses/{code}", status_code=303)
+
+
 @app.get("/settings")
 def settings(request: Request, _: str = Depends(require_admin)):
     settings_data = get_settings()
@@ -442,15 +606,10 @@ def settings(request: Request, _: str = Depends(require_admin)):
     allowed_raw = settings_data.get("allowed_inbounds", "")
     allowed_inbounds = {item.strip() for item in allowed_raw.split(",") if item.strip()}
 
-    inbounds_cache = settings_data.get("marzban_inbounds_cache", "")
-    marzban_inbounds: list = []
-    if inbounds_cache:
-        try:
-            parsed = json.loads(inbounds_cache)
-            if isinstance(parsed, list):
-                marzban_inbounds = parsed
-        except json.JSONDecodeError:
-            marzban_inbounds = []
+    marzban_inbounds = load_inbounds_cache(settings_data)
+    groups = get_groups()
+    group_allowed = get_group_allowed_map(groups)
+    default_group = get_default_group_name(groups)
     return templates.TemplateResponse(
         "settings.html",
         {
@@ -462,6 +621,9 @@ def settings(request: Request, _: str = Depends(require_admin)):
             "marzban_message": marzban_message,
             "allowed_inbounds": allowed_inbounds,
             "marzban_inbounds": marzban_inbounds,
+            "groups": groups,
+            "group_allowed": group_allowed,
+            "default_group": default_group,
         },
     )
 
@@ -498,6 +660,50 @@ async def save_inbounds(request: Request, _: str = Depends(require_admin)):
     set_app_setting("allowed_inbounds", ",".join(tags))
     set_app_setting("marzban_last_message", "Allowed inbounds updated.")
     return RedirectResponse(url="/settings?marzban=ok&message=Allowed+inbounds+updated", status_code=303)
+
+
+@app.post("/groups/new")
+async def create_group(request: Request, _: str = Depends(require_admin)):
+    form = await request.form()
+    name = str(form.get("group_name", "")).strip()
+    if not name:
+        return RedirectResponse(url="/settings?marzban=fail&message=Group+name+required", status_code=303)
+    with get_db() as conn:
+        try:
+            conn.execute(
+                "INSERT INTO groups (name, allowed_inbounds, created_at, is_default) VALUES (?, ?, ?, 0)",
+                (name, "", now_iso()),
+            )
+            conn.commit()
+        except Exception:
+            return RedirectResponse(
+                url="/settings?marzban=fail&message=Group+already+exists",
+                status_code=303,
+            )
+    return RedirectResponse(url="/settings?marzban=ok&message=Group+created", status_code=303)
+
+
+@app.post("/groups/{name}/default")
+def set_default_group(name: str, _: str = Depends(require_admin)):
+    with get_db() as conn:
+        conn.execute("UPDATE groups SET is_default = 0")
+        conn.execute("UPDATE groups SET is_default = 1 WHERE name = ?", (name,))
+        conn.commit()
+    return RedirectResponse(url="/settings?marzban=ok&message=Default+group+updated", status_code=303)
+
+
+@app.post("/groups/{name}/inbounds")
+async def update_group_inbounds(name: str, request: Request, _: str = Depends(require_admin)):
+    form = await request.form()
+    selected = form.getlist("allowed_inbounds")
+    tags = sorted({item.strip() for item in selected if item.strip()})
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE groups SET allowed_inbounds = ? WHERE name = ?",
+            (",".join(tags), name),
+        )
+        conn.commit()
+    return RedirectResponse(url="/settings?marzban=ok&message=Group+inbounds+updated", status_code=303)
 
 
 @app.post("/settings")
@@ -548,10 +754,20 @@ def verify_license(code: str):
     license_row = get_license(code)
     if not license_row:
         return JSONResponse(status_code=404, content={"status": "not_found"})
+    groups = get_groups()
+    group_allowed = get_group_allowed_map(groups)
+    default_group = get_default_group_name(groups)
+    group_name = license_row.get("group_name") or default_group
+    license_allowed = parse_allowed(license_row.get("allowed_inbounds"))
+    effective_inbounds = sorted(
+        license_allowed if license_allowed else group_allowed.get(group_name, set())
+    )
     return {
         "status": license_row["status"],
         "max_devices": license_row["max_devices"],
         "marzban_username": license_row["marzban_username"],
+        "group": group_name,
+        "allowed_inbounds": effective_inbounds,
     }
 
 

@@ -34,4 +34,23 @@
       }
     });
   }
+
+  const tabs = document.querySelectorAll("[data-group-tab]");
+  const panels = document.querySelectorAll("[data-group-panel]");
+  if (tabs.length && panels.length) {
+    const activate = (name) => {
+      tabs.forEach((tab) => {
+        tab.classList.toggle("active", tab.dataset.groupTab === name);
+      });
+      panels.forEach((panel) => {
+        panel.classList.toggle("hidden", panel.dataset.groupPanel !== name);
+      });
+    };
+
+    tabs.forEach((tab) => {
+      tab.addEventListener("click", () => {
+        activate(tab.dataset.groupTab);
+      });
+    });
+  }
 })();

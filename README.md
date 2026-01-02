@@ -21,4 +21,5 @@ Open: http://127.0.0.1:8080
 - Basic auth protects the admin UI. Use the credentials in `.env`.
 - Optional `MARZBAN_*` values in `.env` prefill the Settings page.
 - Use the Settings page to test Marzban connectivity via `/api/admin/token`.
+- Manage groups and per-group inbounds after the Marzban test loads inbound tags.
 - API endpoints are ready for device heartbeats and license validation.
