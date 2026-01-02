@@ -19,4 +19,6 @@ Open: http://127.0.0.1:8080
 ## Notes
 - Data is stored locally in SQLite (default `app_data.db`).
 - Basic auth protects the admin UI. Use the credentials in `.env`.
+- Optional `MARZBAN_*` values in `.env` prefill the Settings page.
+- Use the Settings page to test Marzban connectivity via `/api/admin/token`.
 - API endpoints are ready for device heartbeats and license validation.

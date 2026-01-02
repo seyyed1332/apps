@@ -1,11 +1,37 @@
 (() => {
   const body = document.body;
   const toggle = document.getElementById("menuToggle");
+  const panel = document.getElementById("menuPanel");
 
-  if (toggle) {
-    toggle.addEventListener("click", () => {
+  const setOpen = (isOpen) => {
+    body.setAttribute("data-menu-open", isOpen ? "true" : "false");
+    if (toggle) {
+      toggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    }
+    if (panel) {
+      panel.setAttribute("aria-hidden", isOpen ? "false" : "true");
+    }
+  };
+
+  if (toggle && panel) {
+    toggle.addEventListener("click", (event) => {
+      event.stopPropagation();
       const isOpen = body.getAttribute("data-menu-open") === "true";
-      body.setAttribute("data-menu-open", isOpen ? "false" : "true");
+      setOpen(!isOpen);
+    });
+
+    document.addEventListener("click", (event) => {
+      const isOpen = body.getAttribute("data-menu-open") === "true";
+      if (!isOpen) return;
+      if (!panel.contains(event.target) && !toggle.contains(event.target)) {
+        setOpen(false);
+      }
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
     });
   }
 })();

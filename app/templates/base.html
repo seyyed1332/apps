@@ -14,6 +14,7 @@
   <div class="bg-orb orb-two"></div>
   <div class="bg-grid"></div>
 
+  {% set path = request.url.path %}
   <header class="topbar">
     <div class="brand">
       <span class="brand-mark"></span>
@@ -22,14 +23,22 @@
         <div class="brand-subtitle">Local Admin Panel</div>
       </div>
     </div>
-    <button class="menu-toggle" id="menuToggle" type="button">Menu</button>
+    <nav class="top-nav" aria-label="Primary">
+      <a class="menu-item{% if path == '/' %} active{% endif %}" href="/">Dashboard</a>
+      <a class="menu-item{% if path == '/devices' %} active{% endif %}" href="/devices">Devices</a>
+      <a class="menu-item{% if path == '/licenses' %} active{% endif %}" href="/licenses">Licenses</a>
+      <a class="menu-item{% if path == '/settings' %} active{% endif %}" href="/settings">Settings</a>
+    </nav>
+    <button class="menu-toggle" id="menuToggle" type="button" aria-controls="menuPanel" aria-expanded="false">
+      Menu
+    </button>
   </header>
 
-  <nav class="menu-panel" id="menuPanel">
-    <a class="menu-item" href="/">Dashboard</a>
-    <a class="menu-item" href="/devices">Devices</a>
-    <a class="menu-item" href="/licenses">Licenses</a>
-    <a class="menu-item" href="/settings">Settings</a>
+  <nav class="menu-panel" id="menuPanel" aria-hidden="true">
+    <a class="menu-item{% if path == '/' %} active{% endif %}" href="/">Dashboard</a>
+    <a class="menu-item{% if path == '/devices' %} active{% endif %}" href="/devices">Devices</a>
+    <a class="menu-item{% if path == '/licenses' %} active{% endif %}" href="/licenses">Licenses</a>
+    <a class="menu-item{% if path == '/settings' %} active{% endif %}" href="/settings">Settings</a>
   </nav>
 
   <main class="content">

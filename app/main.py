@@ -1,7 +1,11 @@
+import json
 import os
 import secrets
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
@@ -33,14 +37,20 @@ SETTINGS_FIELDS = [
 ]
 
 DEFAULT_SETTINGS = {
-    "marzban_base_url": "",
-    "marzban_username": "seyyedmt",
-    "marzban_password": "koon2030.",
-    "allowed_inbounds": "",
-    "default_max_devices": "1",
-    "default_data_limit_gb": "0",
-    "default_expire_days": "0",
-    "user_prefix": "app_",
+    "marzban_base_url": os.getenv("MARZBAN_BASE_URL", ""),
+    "marzban_username": os.getenv("MARZBAN_USERNAME", ""),
+    "marzban_password": os.getenv("MARZBAN_PASSWORD", ""),
+    "allowed_inbounds": os.getenv("MARZBAN_ALLOWED_INBOUNDS", ""),
+    "default_max_devices": os.getenv("MARZBAN_DEFAULT_MAX_DEVICES", "1"),
+    "default_data_limit_gb": os.getenv("MARZBAN_DEFAULT_DATA_LIMIT_GB", "0"),
+    "default_expire_days": os.getenv("MARZBAN_DEFAULT_EXPIRE_DAYS", "0"),
+    "user_prefix": os.getenv("MARZBAN_USER_PREFIX", "app_"),
+}
+
+NUMERIC_SETTING_KEYS = {
+    "default_max_devices": 1,
+    "default_data_limit_gb": 0,
+    "default_expire_days": 0,
 }
 
 app = FastAPI(title=APP_TITLE)
@@ -59,6 +69,83 @@ class DeviceHeartbeat(BaseModel):
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def normalize_base_url(raw: str) -> str:
+    base_url = raw.strip()
+    if not base_url:
+        return ""
+    if not base_url.startswith(("http://", "https://")):
+        base_url = f"https://{base_url}"
+    return base_url.rstrip("/")
+
+
+def normalize_settings(values: Dict[str, str]) -> Dict[str, str]:
+    normalized: Dict[str, str] = {}
+    for field in SETTINGS_FIELDS:
+        key = field["key"]
+        value = str(values.get(key, "")).strip()
+        if key == "marzban_base_url":
+            value = normalize_base_url(value)
+        if key in NUMERIC_SETTING_KEYS:
+            try:
+                number = int(value)
+            except ValueError:
+                number = NUMERIC_SETTING_KEYS[key]
+            if key == "default_max_devices":
+                number = max(1, number)
+            else:
+                number = max(0, number)
+            value = str(number)
+        normalized[key] = value
+    return normalized
+
+
+def test_marzban_connection(settings: Dict[str, str]) -> Tuple[bool, str]:
+    base_url = normalize_base_url(settings.get("marzban_base_url", ""))
+    if not base_url:
+        return False, "Marzban base URL is missing."
+
+    username = settings.get("marzban_username", "").strip()
+    password = settings.get("marzban_password", "").strip()
+    if not username or not password:
+        return False, "Marzban username or password is missing."
+
+    token_url = f"{base_url}/api/admin/token"
+    form = urllib.parse.urlencode(
+        {"grant_type": "password", "username": username, "password": password}
+    ).encode("utf-8")
+    request = urllib.request.Request(token_url, data=form, method="POST")
+    request.add_header("Content-Type", "application/x-www-form-urlencoded")
+    request.add_header("Accept", "application/json")
+    request.add_header("User-Agent", "SeyyedMT-Panel")
+
+    try:
+        with urllib.request.urlopen(request, timeout=12) as response:
+            body = response.read().decode("utf-8", errors="ignore")
+    except urllib.error.HTTPError as exc:
+        detail = ""
+        try:
+            detail = exc.read().decode("utf-8", errors="ignore").strip()
+        except Exception:
+            detail = ""
+        message = f"HTTP {exc.code}"
+        if detail:
+            message = f"{message}: {detail[:160]}"
+        return False, message
+    except urllib.error.URLError as exc:
+        return False, f"Connection failed: {exc.reason}"
+
+    try:
+        payload = json.loads(body) if body else {}
+    except json.JSONDecodeError:
+        return False, "Unexpected response from Marzban."
+
+    if payload.get("access_token"):
+        return True, "Marzban authenticated successfully."
+
+    detail = payload.get("detail") or payload.get("message") or "Authentication failed."
+    return False, str(detail)
 
 
 def require_admin(credentials: HTTPBasicCredentials = Depends(security)) -> str:
@@ -90,8 +177,9 @@ def get_settings() -> Dict[str, str]:
 
 
 def update_settings(new_values: Dict[str, str]) -> None:
+    normalized = normalize_settings(new_values)
     with get_db() as conn:
-        for key, value in new_values.items():
+        for key, value in normalized.items():
             conn.execute(
                 "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?) "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
@@ -275,6 +363,8 @@ def toggle_license(code: str, _: str = Depends(require_admin)):
 @app.get("/settings")
 def settings(request: Request, _: str = Depends(require_admin)):
     settings_data = get_settings()
+    marzban_status = request.query_params.get("marzban", "")
+    marzban_message = request.query_params.get("message", "")
     return templates.TemplateResponse(
         "settings.html",
         {
@@ -282,8 +372,20 @@ def settings(request: Request, _: str = Depends(require_admin)):
             "title": APP_TITLE,
             "settings": settings_data,
             "fields": SETTINGS_FIELDS,
+            "marzban_status": marzban_status,
+            "marzban_message": marzban_message,
         },
     )
+
+
+@app.post("/settings/marzban/test")
+def marzban_test(_: str = Depends(require_admin)):
+    settings_data = get_settings()
+    ok, message = test_marzban_connection(settings_data)
+    params = urllib.parse.urlencode(
+        {"marzban": "ok" if ok else "fail", "message": message}
+    )
+    return RedirectResponse(url=f"/settings?{params}", status_code=303)
 
 
 @app.post("/settings")

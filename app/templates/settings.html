@@ -9,6 +9,35 @@
 
 <section class="card form-card">
   <div class="card-head">
+    <h2>Marzban Connection</h2>
+    {% if marzban_status == "ok" %}
+    <span class="status active">Connected</span>
+    {% elif marzban_status == "fail" %}
+    <span class="status disabled">Failed</span>
+    {% else %}
+    <span class="status pending">Not tested</span>
+    {% endif %}
+  </div>
+  {% if marzban_message %}
+  <div class="notice {% if marzban_status == 'ok' %}notice-success{% else %}notice-error{% endif %}">
+    {{ marzban_message }}
+  </div>
+  {% endif %}
+  <form class="form-grid compact" method="post" action="/settings/marzban/test">
+    <div class="form-note span-2">
+      Uses <span class="mono">/api/admin/token</span> with the saved Marzban username and password.
+    </div>
+    <div class="form-note span-2">
+      Current base URL: <span class="mono">{{ settings.get("marzban_base_url") or "not set" }}</span>
+    </div>
+    <div class="form-actions">
+      <button type="submit">Test Marzban API</button>
+    </div>
+  </form>
+</section>
+
+<section class="card form-card">
+  <div class="card-head">
     <h2>Core Settings</h2>
   </div>
   <form class="form-grid" method="post" action="/settings">
