@@ -20,6 +20,7 @@ Open: http://127.0.0.1:8080
 - Data is stored locally in SQLite (default `app_data.db`).
 - Basic auth protects the admin UI. Use the credentials in `.env`.
 - Set `APP_PUBLIC_TOKEN` in `.env` to protect app-facing endpoints.
+- Toggle free signup in Settings (or set `ALLOW_FREE_SIGNUP` in `.env`).
 - Optional `MARZBAN_*` values in `.env` prefill the Settings page.
 - Use the Settings page to test Marzban connectivity via `/api/admin/token`.
 - Manage groups and per-group inbounds after the Marzban test loads inbound tags.

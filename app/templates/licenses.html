@@ -45,6 +45,35 @@
   </form>
 </section>
 
+<section class="card form-card">
+  <div class="card-head centered">
+    <h2>Migrate Marzban User</h2>
+  </div>
+  <form class="form-grid centered" method="post" action="/licenses/migrate">
+    <label>
+      <span>Marzban Username</span>
+      <input type="text" name="marzban_username" placeholder="user123" />
+    </label>
+    <label>
+      <span>Group</span>
+      <select name="group_name">
+        {% for group in groups %}
+        <option value="{{ group.name }}" {% if group.name == default_group %}selected{% endif %}>
+          {{ group.name }}
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="span-2">
+      <span>Note</span>
+      <input type="text" name="note" placeholder="Migration from Marzban" />
+    </label>
+    <div class="form-actions">
+      <button type="submit">Create License</button>
+    </div>
+  </form>
+</section>
+
 <section class="card table-card">
   <div class="card-head centered">
     <h2>All Licenses</h2>

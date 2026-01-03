@@ -98,6 +98,21 @@
 
 <section class="card form-card">
   <div class="card-head">
+    <h2>App Features</h2>
+  </div>
+  <form class="form-grid" method="post" action="/settings/features">
+    <label class="checkbox span-2">
+      <input type="checkbox" name="allow_free_signup" {% if allow_free_signup %}checked{% endif %} />
+      <span>Allow free account signup</span>
+    </label>
+    <div class="form-actions">
+      <button type="submit">Save Features</button>
+    </div>
+  </form>
+</section>
+
+<section class="card form-card">
+  <div class="card-head">
     <h2>Core Settings</h2>
   </div>
   <form class="form-grid" method="post" action="/settings">

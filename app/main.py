@@ -49,6 +49,7 @@ DEFAULT_SETTINGS = {
     "marzban_last_status": "",
     "marzban_last_message": "",
     "marzban_inbounds_cache": "",
+    "allow_free_signup": os.getenv("ALLOW_FREE_SIGNUP", "true"),
 }
 
 NUMERIC_SETTING_KEYS = {
@@ -56,6 +57,12 @@ NUMERIC_SETTING_KEYS = {
     "default_data_limit_gb": 0,
     "default_expire_days": 0,
 }
+
+
+def parse_bool(value: Optional[str], default: bool = False) -> bool:
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 MARZBAN_PROTOCOLS = {"vmess", "vless", "trojan", "shadowsocks"}
 
@@ -715,6 +722,69 @@ def create_license(
     return RedirectResponse(url="/licenses", status_code=303)
 
 
+@app.post("/licenses/migrate")
+def migrate_license(
+    marzban_username: str = Form(""),
+    group_name: str = Form(""),
+    note: str = Form(""),
+    _: str = Depends(require_admin),
+):
+    marzban_username = marzban_username.strip()
+    if not marzban_username:
+        params = urllib.parse.urlencode({"marzban": "fail", "message": "Username required."})
+        return RedirectResponse(url=f"/licenses?{params}", status_code=303)
+
+    with get_db() as conn:
+        existing = conn.execute(
+            "SELECT code FROM licenses WHERE marzban_username = ?",
+            (marzban_username,),
+        ).fetchone()
+        if existing:
+            params = urllib.parse.urlencode(
+                {"marzban": "ok", "message": "License already exists for this user."}
+            )
+            return RedirectResponse(url=f"/licenses?{params}", status_code=303)
+
+    settings_data = get_settings()
+    user_payload, error = marzban_get_user(settings_data, marzban_username)
+    if error or not user_payload:
+        message = error or "User not found in Marzban."
+        params = urllib.parse.urlencode({"marzban": "fail", "message": message})
+        return RedirectResponse(url=f"/licenses?{params}", status_code=303)
+
+    groups = get_groups()
+    group_names = {group["name"] for group in groups}
+    default_group = get_default_group_name(groups)
+    if group_name not in group_names:
+        group_name = default_group
+    group_row = next((group for group in groups if group["name"] == group_name), None)
+    allowed_inbounds = group_row.get("allowed_inbounds", "") if group_row else ""
+
+    max_devices = int(settings_data.get("default_max_devices", "1") or 1)
+    code = generate_license_code()
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO licenses (code, status, max_devices, created_at, note, marzban_username, group_name, allowed_inbounds) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                code,
+                "active",
+                max_devices,
+                now_iso(),
+                note.strip(),
+                marzban_username,
+                group_name,
+                allowed_inbounds,
+            ),
+        )
+        conn.commit()
+
+    params = urllib.parse.urlencode(
+        {"marzban": "ok", "message": f"License created for {marzban_username}."}
+    )
+    return RedirectResponse(url=f"/licenses?{params}", status_code=303)
+
+
 @app.post("/licenses/{code}/toggle")
 def toggle_license(code: str, _: str = Depends(require_admin)):
     license_row = get_license(code)
@@ -831,6 +901,7 @@ def settings(request: Request, _: str = Depends(require_admin)):
             "request": request,
             "title": APP_TITLE,
             "settings": settings_data,
+            "allow_free_signup": parse_bool(settings_data.get("allow_free_signup"), True),
             "fields": SETTINGS_FIELDS,
             "marzban_status": marzban_status,
             "marzban_message": marzban_message,
@@ -934,6 +1005,14 @@ async def save_settings(request: Request, _: str = Depends(require_admin)):
         value = form.get(key, "")
         settings_data[key] = str(value)
     update_settings(settings_data)
+    return RedirectResponse(url="/settings", status_code=303)
+
+
+@app.post("/settings/features")
+async def save_feature_settings(request: Request, _: str = Depends(require_admin)):
+    form = await request.form()
+    allow_free_signup = "true" if form.get("allow_free_signup") == "on" else "false"
+    set_app_setting("allow_free_signup", allow_free_signup)
     return RedirectResponse(url="/settings", status_code=303)
 
 
@@ -1076,6 +1155,9 @@ def license_subscription(code: str, request: Request):
 @app.post("/api/license/free")
 def create_free_license(payload: FreeSignup, request: Request):
     require_app_token(request)
+    settings_data = get_settings()
+    if not parse_bool(settings_data.get("allow_free_signup"), True):
+        return JSONResponse(status_code=403, content={"status": "error", "message": "Free signup disabled."})
     username = payload.username.strip()
     if not username:
         raise HTTPException(status_code=400, detail="Username required")
@@ -1094,7 +1176,6 @@ def create_free_license(payload: FreeSignup, request: Request):
                 "group": row.get("group_name") or "free",
             }
 
-    settings_data = get_settings()
     groups = get_groups()
     free_group = next(
         (g for g in groups if str(g.get("name") or "").lower() == "free"),
@@ -1164,5 +1245,6 @@ def public_settings():
             if item.strip()
         ],
         "user_prefix": settings_data.get("user_prefix", "app_"),
+        "allow_free_signup": parse_bool(settings_data.get("allow_free_signup"), True),
     }
     return payload
