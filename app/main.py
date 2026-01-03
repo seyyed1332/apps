@@ -5,7 +5,7 @@ import secrets
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, Optional, Tuple
 
 from dotenv import load_dotenv
@@ -74,6 +74,14 @@ def parse_bool(value: Optional[str], default: bool = False) -> bool:
         return default
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
+
+def parse_int(value: Optional[str], default: int = 0, min_value: int = 0) -> int:
+    try:
+        number = int(str(value).strip())
+    except (TypeError, ValueError):
+        number = default
+    return max(min_value, number)
+
 MARZBAN_PROTOCOLS = {"vmess", "vless", "trojan", "shadowsocks"}
 
 app = FastAPI(title=APP_TITLE)
@@ -96,6 +104,14 @@ class DeviceHeartbeat(BaseModel):
 class FreeSignup(BaseModel):
     username: str
     note: Optional[str] = None
+    device_id: Optional[str] = None
+    install_id: Optional[str] = None
+    app_version: Optional[str] = None
+    manufacturer: Optional[str] = None
+    model: Optional[str] = None
+    device: Optional[str] = None
+    os_version: Optional[str] = None
+    abi: Optional[str] = None
 
 
 def now_iso() -> str:
@@ -373,6 +389,8 @@ def marzban_update_user(
     allowed_tags: set,
     status: str,
     note: str,
+    data_limit: Optional[int] = None,
+    expire: Optional[int] = None,
 ) -> Tuple[bool, str]:
     base_url = normalize_base_url(settings_data.get("marzban_base_url", ""))
     if not base_url:
@@ -385,6 +403,10 @@ def marzban_update_user(
     payload: Dict[str, Any] = {"status": status}
     if note:
         payload["note"] = note
+    if data_limit is not None:
+        payload["data_limit"] = data_limit
+    if expire is not None:
+        payload["expire"] = expire
 
     marzban_inbounds = load_inbounds_cache(settings_data)
     inbounds_payload = build_inbounds_payload(allowed_tags, marzban_inbounds)
@@ -686,6 +708,119 @@ def upsert_device(license_code: str, payload: DeviceHeartbeat, ip: str, user_age
         conn.commit()
 
 
+def find_license_by_device(device_id: str) -> Optional[Dict[str, Any]]:
+    if not device_id:
+        return None
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT l.code, l.status, l.marzban_username, l.group_name, l.max_devices "
+            "FROM devices d "
+            "JOIN licenses l ON l.code = d.license_code "
+            "WHERE d.device_id = ? "
+            "ORDER BY d.last_seen_at DESC LIMIT 1",
+            (device_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def build_free_signup_response(
+    status: str,
+    license_row: Dict[str, Any],
+    request: Request,
+    settings_data: Dict[str, str],
+) -> Dict[str, Any]:
+    username = str(license_row.get("marzban_username") or "").strip()
+    group_name = license_row.get("group_name") or "free"
+    profile: Dict[str, Any] = {}
+    if username:
+        user_payload, error = marzban_get_user(settings_data, username)
+        if error:
+            profile["message"] = error
+        else:
+            profile.update(build_subscription_profile(user_payload or {}))
+    profile.update(
+        {
+            "status": status,
+            "license": license_row.get("code"),
+            "username": username,
+            "group": group_name,
+            "subscription_url": build_panel_subscription_url(request, str(license_row.get("code") or "")),
+        }
+    )
+    return profile
+
+
+def parse_reset_time(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def apply_free_reset(
+    license_row: Dict[str, Any],
+    settings_data: Dict[str, str],
+) -> Tuple[bool, str]:
+    if license_row.get("status") != "active":
+        return False, "License is disabled."
+    username = str(license_row.get("marzban_username") or "").strip()
+    if not username:
+        return False, "Missing Marzban username."
+
+    data_gb = int(license_row.get("free_reset_data_gb") or 0)
+    days = int(license_row.get("free_reset_days") or 0)
+    hours = int(license_row.get("free_reset_hours") or 0)
+    if data_gb <= 0 and days <= 0:
+        return False, "Free reset values are empty."
+
+    user_payload, error = marzban_get_user(settings_data, username)
+    if error:
+        return False, error
+
+    current_limit = user_payload.get("data_limit") if isinstance(user_payload, dict) else None
+    current_expire = user_payload.get("expire") if isinstance(user_payload, dict) else None
+
+    new_limit = None
+    if data_gb > 0:
+        base = int(current_limit) if isinstance(current_limit, (int, float)) and current_limit > 0 else 0
+        new_limit = base + data_gb * 1024 * 1024 * 1024
+
+    new_expire = None
+    if days > 0:
+        base = (
+            int(current_expire)
+            if isinstance(current_expire, (int, float)) and current_expire > 0
+            else int(datetime.now(timezone.utc).timestamp())
+        )
+        new_expire = base + days * 86400
+
+    ok, message = marzban_update_user(
+        settings_data,
+        username,
+        set(),
+        str(license_row.get("status") or "active"),
+        str(license_row.get("note") or ""),
+        data_limit=new_limit,
+        expire=new_expire,
+    )
+    if not ok:
+        return False, message
+
+    next_reset = ""
+    if hours > 0:
+        next_reset = (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat()
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE licenses SET free_last_reset_at = ?, free_next_reset_at = ? WHERE code = ?",
+            (now_iso(), next_reset, license_row.get("code")),
+        )
+        conn.commit()
+    return True, "Free reset applied."
 def generate_license_code() -> str:
     raw = secrets.token_hex(12).upper()
     return "".join([raw[i : i + 4] for i in range(0, len(raw), 4)])
@@ -987,6 +1122,17 @@ async def update_license(request: Request, code: str, _: str = Depends(require_a
     marzban_username = str(form.get("marzban_username", "")).strip()
     note = str(form.get("note", "")).strip()
 
+    free_reset_hours = parse_int(form.get("free_reset_hours"), 0, 0)
+    free_reset_data_gb = parse_int(form.get("free_reset_data_gb"), 0, 0)
+    free_reset_days = parse_int(form.get("free_reset_days"), 0, 0)
+    next_reset_at = str(license_row.get("free_next_reset_at") or "").strip()
+    if free_reset_hours <= 0:
+        next_reset_at = ""
+    else:
+        current_hours = int(license_row.get("free_reset_hours") or 0)
+        if free_reset_hours != current_hours or not next_reset_at:
+            next_reset_at = (datetime.now(timezone.utc) + timedelta(hours=free_reset_hours)).isoformat()
+
     inherit_group = form.get("inherit_inbounds") == "on"
     selected = form.getlist("allowed_inbounds")
     tags = sorted({item.strip() for item in selected if item.strip()})
@@ -995,7 +1141,8 @@ async def update_license(request: Request, code: str, _: str = Depends(require_a
     with get_db() as conn:
         conn.execute(
             "UPDATE licenses SET status = ?, max_devices = ?, marzban_username = ?, note = ?, "
-            "group_name = ?, allowed_inbounds = ? WHERE code = ?",
+            "group_name = ?, allowed_inbounds = ?, free_reset_hours = ?, free_reset_data_gb = ?, "
+            "free_reset_days = ?, free_next_reset_at = ? WHERE code = ?",
             (
                 status,
                 max_devices,
@@ -1003,6 +1150,10 @@ async def update_license(request: Request, code: str, _: str = Depends(require_a
                 note,
                 group_name,
                 allowed_inbounds,
+                free_reset_hours,
+                free_reset_data_gb,
+                free_reset_days,
+                next_reset_at,
                 code,
             ),
         )
@@ -1027,6 +1178,43 @@ async def update_license(request: Request, code: str, _: str = Depends(require_a
         params = urllib.parse.urlencode({"marzban": marzban_status, "message": marzban_message})
         return RedirectResponse(url=f"/licenses/{code}?{params}", status_code=303)
     return RedirectResponse(url=f"/licenses/{code}", status_code=303)
+
+
+@app.post("/licenses/{code}/reset-free")
+def reset_free_license(code: str, _: str = Depends(require_admin)):
+    license_row = get_license(code)
+    if not license_row:
+        raise HTTPException(status_code=404, detail="License not found")
+    settings_data = get_settings()
+    ok, message = apply_free_reset(license_row, settings_data)
+    params = urllib.parse.urlencode({"marzban": "ok" if ok else "fail", "message": message})
+    return RedirectResponse(url=f"/licenses/{code}?{params}", status_code=303)
+
+
+@app.post("/licenses/free-resets/run")
+def run_due_free_resets(_: str = Depends(require_admin)):
+    settings_data = get_settings()
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM licenses WHERE free_reset_hours > 0 AND free_next_reset_at IS NOT NULL AND free_next_reset_at != ''"
+        ).fetchall()
+    due = []
+    now = datetime.now(timezone.utc)
+    for row in rows:
+        next_reset = parse_reset_time(row["free_next_reset_at"])
+        if next_reset and next_reset <= now:
+            due.append(dict(row))
+
+    success = 0
+    failed = 0
+    for license_row in due:
+        ok, _ = apply_free_reset(license_row, settings_data)
+        if ok:
+            success += 1
+        else:
+            failed += 1
+
+    return {"status": "ok", "processed": len(due), "success": success, "failed": failed}
 
 
 @app.get("/settings")
@@ -1324,22 +1512,63 @@ def create_free_license(payload: FreeSignup, request: Request):
     if not parse_bool(settings_data.get("allow_free_signup"), True):
         return JSONResponse(status_code=403, content={"status": "error", "message": "Free signup disabled."})
     username = payload.username.strip()
+    device_id = str(payload.device_id or "").strip()
+    ip = request.client.host if request.client else ""
+    user_agent = request.headers.get("user-agent", "")
+
+    if device_id:
+        device_license = find_license_by_device(device_id)
+        if device_license:
+            if device_license.get("status") != "active":
+                return JSONResponse(status_code=403, content={"status": "error", "message": "License is disabled."})
+            device_payload = DeviceHeartbeat(
+                license=str(device_license.get("code") or ""),
+                device_id=device_id,
+                install_id=payload.install_id,
+                app_version=payload.app_version,
+                manufacturer=payload.manufacturer,
+                model=payload.model,
+                device=payload.device,
+                os_version=payload.os_version,
+                abi=payload.abi,
+            )
+            upsert_device(str(device_license.get("code") or ""), device_payload, ip, user_agent)
+            return build_free_signup_response("exists", device_license, request, settings_data)
+
     if not username:
         raise HTTPException(status_code=400, detail="Username required")
 
     with get_db() as conn:
         existing = conn.execute(
-            "SELECT code, status, marzban_username, group_name FROM licenses WHERE marzban_username = ?",
+            "SELECT code, status, marzban_username, group_name, max_devices FROM licenses WHERE marzban_username = ?",
             (username,),
         ).fetchone()
         if existing:
             row = dict(existing)
-            return {
-                "status": "exists",
-                "license": row["code"],
-                "username": row["marzban_username"],
-                "group": row.get("group_name") or "free",
-            }
+            if row.get("status") != "active":
+                return JSONResponse(status_code=403, content={"status": "error", "message": "License is disabled."})
+            if device_id:
+                attached = conn.execute(
+                    "SELECT 1 FROM devices WHERE device_id = ? AND license_code = ?",
+                    (device_id, row.get("code")),
+                ).fetchone()
+                if not attached:
+                    max_devices = int(row.get("max_devices") or 1)
+                    if count_devices_for_license(row.get("code")) >= max_devices:
+                        return JSONResponse(status_code=403, content={"status": "error", "message": "Device limit reached"})
+                    device_payload = DeviceHeartbeat(
+                        license=str(row.get("code") or ""),
+                        device_id=device_id,
+                        install_id=payload.install_id,
+                        app_version=payload.app_version,
+                        manufacturer=payload.manufacturer,
+                        model=payload.model,
+                        device=payload.device,
+                        os_version=payload.os_version,
+                        abi=payload.abi,
+                    )
+                    upsert_device(str(row.get("code") or ""), device_payload, ip, user_agent)
+            return build_free_signup_response("exists", row, request, settings_data)
 
     groups = get_groups()
     free_group = next(
@@ -1380,23 +1609,26 @@ def create_free_license(payload: FreeSignup, request: Request):
         )
         conn.commit()
 
-    profile = {}
-    user_payload, error = marzban_get_user(settings_data, username)
-    if error:
-        profile = {"status": "warning", "message": error}
-    else:
-        profile = build_subscription_profile(user_payload or {})
+    if device_id:
+        device_payload = DeviceHeartbeat(
+            license=code,
+            device_id=device_id,
+            install_id=payload.install_id,
+            app_version=payload.app_version,
+            manufacturer=payload.manufacturer,
+            model=payload.model,
+            device=payload.device,
+            os_version=payload.os_version,
+            abi=payload.abi,
+        )
+        upsert_device(code, device_payload, ip, user_agent)
 
-    profile.update(
-        {
-            "status": "created",
-            "license": code,
-            "username": username,
-            "group": group_name,
-            "subscription_url": build_panel_subscription_url(request, code),
-        }
+    return build_free_signup_response(
+        "created",
+        {"code": code, "marzban_username": username, "group_name": group_name},
+        request,
+        settings_data,
     )
-    return profile
 
 
 @app.get("/api/settings")

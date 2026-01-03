@@ -47,6 +47,21 @@
       <span>Note</span>
       <input type="text" name="note" value="{{ license.note or '' }}" />
     </label>
+    <label>
+      <span>Free Reset Interval (hours)</span>
+      <input type="number" name="free_reset_hours" min="0" value="{{ license.free_reset_hours or 0 }}" />
+    </label>
+    <label>
+      <span>Free Reset Data (GB)</span>
+      <input type="number" name="free_reset_data_gb" min="0" value="{{ license.free_reset_data_gb or 0 }}" />
+    </label>
+    <label>
+      <span>Free Reset Days</span>
+      <input type="number" name="free_reset_days" min="0" value="{{ license.free_reset_days or 0 }}" />
+    </label>
+    <div class="form-note span-2">
+      Next reset: {{ license.free_next_reset_at or '-' }} | Last reset: {{ license.free_last_reset_at or '-' }}
+    </div>
 
     {% if marzban_inbounds %}
     <div class="span-2">
@@ -79,6 +94,9 @@
     <div class="form-actions">
       <button type="submit">Save License</button>
     </div>
+  </form>
+  <form class="form-actions" method="post" action="/licenses/{{ license.code }}/reset-free">
+    <button type="submit">Run Free Reset Now</button>
   </form>
 </section>
 {% endblock %}
