@@ -13,10 +13,10 @@
 {% endif %}
 
 <section class="card form-card">
-  <div class="card-head centered">
+  <div class="card-head">
     <h2>Create License</h2>
   </div>
-  <form class="form-grid centered" method="post" action="/licenses/new">
+  <form class="form-grid" method="post" action="/licenses/new">
     <label>
       <span>Max Devices</span>
       <input type="number" name="max_devices" min="1" value="1" />
@@ -46,10 +46,10 @@
 </section>
 
 <section class="card form-card">
-  <div class="card-head centered">
+  <div class="card-head">
     <h2>Migrate Marzban User</h2>
   </div>
-  <form class="form-grid centered" method="post" action="/licenses/migrate">
+  <form class="form-grid" method="post" action="/licenses/migrate">
     <label>
       <span>Marzban Username</span>
       <input type="text" name="marzban_username" placeholder="user123" />
@@ -75,7 +75,7 @@
 </section>
 
 <section class="card table-card">
-  <div class="card-head centered">
+  <div class="card-head">
     <h2>All Licenses</h2>
     <form class="search" method="get" action="/licenses">
       <input type="text" name="q" placeholder="Search code, user, group" value="{{ query }}" />
@@ -83,7 +83,7 @@
     </form>
   </div>
   <div class="table-wrap">
-    <table class="table-centered">
+    <table>
       <thead>
         <tr>
           <th>Code</th>
@@ -104,8 +104,8 @@
           <td>
             <span class="status {{ license.status }}">{{ license.status }}</span>
           </td>
-          <td>{{ license.device_count }}</td>
-          <td>{{ license.max_devices }}</td>
+          <td class="num">{{ license.device_count }}</td>
+          <td class="num">{{ license.max_devices }}</td>
           <td>{{ license.marzban_username or '-' }}</td>
           <td>{{ license.group_name or '-' }}</td>
           <td>{{ license.last_used_at or '-' }}</td>

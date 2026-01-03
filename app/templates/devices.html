@@ -27,7 +27,7 @@
           <th>Model</th>
           <th>First Seen</th>
           <th>Last Seen</th>
-          <th>Hits</th>
+          <th class="num">Hits</th>
         </tr>
       </thead>
       <tbody>
@@ -42,7 +42,7 @@
           <td>{{ device.model or '-' }}</td>
           <td>{{ device.first_seen_at }}</td>
           <td>{{ device.last_seen_at }}</td>
-          <td>{{ device.seen_count }}</td>
+          <td class="num">{{ device.seen_count }}</td>
         </tr>
         {% endfor %}
       </tbody>

@@ -6,22 +6,15 @@
   <title>{{ title }}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body class="app" data-menu-open="false">
-  <div class="bg-orb orb-one"></div>
-  <div class="bg-orb orb-two"></div>
-  <div class="bg-grid"></div>
-
   {% set path = request.url.path %}
   <header class="topbar">
     <div class="brand">
-      <span class="brand-mark"></span>
-      <div>
-        <div class="brand-title">SeyyedMT Control</div>
-        <div class="brand-subtitle">Local Admin Panel</div>
-      </div>
+      <div class="brand-title">SeyyedMT Control</div>
+      <div class="brand-subtitle">Admin Console</div>
     </div>
     <nav class="top-nav" aria-label="Primary">
       <a class="menu-item{% if path == '/' %} active{% endif %}" href="/">Dashboard</a>
