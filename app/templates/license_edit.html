@@ -125,16 +125,21 @@
                 <span class="transport-label">{{ transport.label }}</span>
                 <span class="helper">{{ transport.count }} options</span>
               </div>
-              <div class="inbound-rows">
+              <div class="inbound-table">
+                <div class="inbound-table-head">
+                  <span>Transport</span>
+                  <span>Port</span>
+                  <span>Label</span>
+                  <span>Security</span>
+                  <span>Active</span>
+                </div>
                 {% for inbound in transport.primary %}
-                <div class="inbound-item-card{% if inbound.checked %} active{% endif %}">
+                <div class="inbound-row-wrap{% if inbound.checked %} active{% endif %}">
                   <div class="inbound-row">
-                    <span class="protocol-badge {{ inbound.security_state }}">{{ inbound.protocol_label }}</span>
                     <span class="transport">{{ inbound.transport }}</span>
                     <span class="port">{{ inbound.port }}</span>
                     <span class="label">
                       <span class="label-title">{{ inbound.short_label }}</span>
-                      <span class="security-tag {{ inbound.security_state }}">{{ inbound.security_label }}</span>
                       <button
                         class="details-toggle"
                         type="button"
@@ -143,6 +148,7 @@
                         Details
                       </button>
                     </span>
+                    <span class="security-tag {{ inbound.security_state }}">{{ inbound.security_label }}</span>
                     <label class="toggle" aria-label="Toggle inbound {{ inbound.tag }}">
                       <input
                         type="checkbox"
@@ -188,16 +194,21 @@
               {% if transport.advanced %}
               <details class="inbound-advanced">
                 <summary>Advanced options ({{ transport.advanced|length }})</summary>
-                <div class="inbound-rows">
+                <div class="inbound-table">
+                  <div class="inbound-table-head">
+                    <span>Transport</span>
+                    <span>Port</span>
+                    <span>Label</span>
+                    <span>Security</span>
+                    <span>Active</span>
+                  </div>
                   {% for inbound in transport.advanced %}
-                  <div class="inbound-item-card{% if inbound.checked %} active{% endif %}">
+                  <div class="inbound-row-wrap{% if inbound.checked %} active{% endif %}">
                     <div class="inbound-row">
-                      <span class="protocol-badge {{ inbound.security_state }}">{{ inbound.protocol_label }}</span>
                       <span class="transport">{{ inbound.transport }}</span>
                       <span class="port">{{ inbound.port }}</span>
                       <span class="label">
                         <span class="label-title">{{ inbound.short_label }}</span>
-                        <span class="security-tag {{ inbound.security_state }}">{{ inbound.security_label }}</span>
                         <button
                           class="details-toggle"
                           type="button"
@@ -206,6 +217,7 @@
                           Details
                         </button>
                       </span>
+                      <span class="security-tag {{ inbound.security_state }}">{{ inbound.security_label }}</span>
                       <label class="toggle" aria-label="Toggle inbound {{ inbound.tag }}">
                         <input
                           type="checkbox"

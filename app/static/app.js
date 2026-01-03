@@ -54,20 +54,19 @@
     });
   }
 
-  const inboundCards = document.querySelectorAll(".inbound-item-card");
-  inboundCards.forEach((card) => {
-    const input = card.querySelector("input[type='checkbox']");
-    const row = card.querySelector(".inbound-row");
+  const inboundRows = document.querySelectorAll(".inbound-row-wrap");
+  inboundRows.forEach((wrapper) => {
+    const input = wrapper.querySelector("input[type='checkbox']");
+    const row = wrapper.querySelector(".inbound-row");
     if (!input || !row) return;
 
     const syncState = () => {
-      card.classList.toggle("active", input.checked);
+      wrapper.classList.toggle("active", input.checked);
     };
 
     row.addEventListener("click", (event) => {
       if (event.target.closest("label")) return;
       if (event.target.closest("button")) return;
-      if (event.target.closest(".inbound-details")) return;
       input.checked = !input.checked;
       input.dispatchEvent(new Event("change", { bubbles: true }));
     });
