@@ -56,6 +56,8 @@ NUMERIC_SETTING_KEYS = {
     "default_expire_days": 0,
 }
 
+MARZBAN_PROTOCOLS = {"vmess", "vless", "trojan", "shadowsocks"}
+
 app = FastAPI(title=APP_TITLE)
 app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
@@ -208,6 +210,83 @@ def marzban_inbounds(base_url: str, token: str) -> Tuple[Optional[list], Optiona
 
     inbounds.sort(key=lambda inbound: (inbound.get("protocol"), inbound.get("tag")))
     return inbounds, None
+
+
+def build_inbounds_payload(allowed_tags: set, marzban_inbounds: list) -> Dict[str, list]:
+    if not allowed_tags:
+        return {}
+    tag_protocol: Dict[str, str] = {}
+    for inbound in marzban_inbounds:
+        if not isinstance(inbound, dict):
+            continue
+        tag = str(inbound.get("tag") or "").strip()
+        protocol = str(inbound.get("protocol") or "").strip().lower()
+        if not tag or not protocol or protocol not in MARZBAN_PROTOCOLS:
+            continue
+        tag_protocol[tag] = protocol
+
+    payload: Dict[str, list] = {}
+    for tag in sorted(allowed_tags):
+        protocol = tag_protocol.get(tag)
+        if not protocol:
+            continue
+        payload.setdefault(protocol, []).append(tag)
+    return payload
+
+
+def marzban_create_user(
+    settings_data: Dict[str, str],
+    username: str,
+    allowed_tags: set,
+    note: str,
+) -> Tuple[bool, str]:
+    base_url = normalize_base_url(settings_data.get("marzban_base_url", ""))
+    if not base_url:
+        return False, "Marzban base URL is missing."
+
+    token, message = marzban_token(settings_data)
+    if not token:
+        return False, message
+
+    payload: Dict[str, Any] = {"username": username, "status": "active"}
+    if note:
+        payload["note"] = note
+
+    data_limit_gb = int(settings_data.get("default_data_limit_gb", "0") or 0)
+    if data_limit_gb > 0:
+        payload["data_limit"] = data_limit_gb * 1024 * 1024 * 1024
+
+    expire_days = int(settings_data.get("default_expire_days", "0") or 0)
+    if expire_days > 0:
+        payload["expire"] = int(datetime.now(timezone.utc).timestamp()) + expire_days * 86400
+
+    marzban_inbounds = load_inbounds_cache(settings_data)
+    inbounds_payload = build_inbounds_payload(allowed_tags, marzban_inbounds)
+    if allowed_tags and not inbounds_payload:
+        return (
+            False,
+            "No matching inbounds found. Run Marzban test and review group inbounds.",
+        )
+    if inbounds_payload:
+        payload["inbounds"] = inbounds_payload
+        payload["proxies"] = {protocol: {} for protocol in inbounds_payload.keys()}
+
+    data = json.dumps(payload).encode("utf-8")
+    user_url = f"{base_url}/api/user"
+    _, error = request_json(
+        user_url,
+        method="POST",
+        data=data,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+    )
+    if error:
+        if error.startswith("HTTP 409"):
+            return True, "Marzban user already exists."
+        return False, f"Marzban user create failed: {error}"
+    return True, "Marzban user created."
 
 
 def require_admin(credentials: HTTPBasicCredentials = Depends(security)) -> str:
@@ -434,6 +513,8 @@ def devices(request: Request, q: str = "", _: str = Depends(require_admin)):
 
 @app.get("/licenses")
 def licenses(request: Request, q: str = "", _: str = Depends(require_admin)):
+    marzban_status = request.query_params.get("marzban", "")
+    marzban_message = request.query_params.get("message", "")
     with get_db() as conn:
         rows = conn.execute(
             "SELECT l.*, COUNT(d.id) AS device_count "
@@ -456,6 +537,8 @@ def licenses(request: Request, q: str = "", _: str = Depends(require_admin)):
             "groups": groups,
             "default_group": default_group,
             "query": q,
+            "marzban_status": marzban_status,
+            "marzban_message": marzban_message,
         },
     )
 
@@ -468,7 +551,9 @@ def create_license(
     group_name: str = Form(""),
     _: str = Depends(require_admin),
 ):
+    marzban_username = marzban_username.strip()
     code = generate_license_code()
+    marzban_message = ""
     with get_db() as conn:
         group_row = None
         if group_name:
@@ -482,6 +567,21 @@ def create_license(
             ).fetchone()
         final_group = group_row["name"] if group_row else "free"
         final_inbounds = group_row["allowed_inbounds"] if group_row else ""
+    if marzban_username:
+        settings_data = get_settings()
+        allowed_tags = parse_allowed(final_inbounds)
+        ok, marzban_message = marzban_create_user(
+            settings_data,
+            marzban_username,
+            allowed_tags,
+            note,
+        )
+        if not ok:
+            params = urllib.parse.urlencode(
+                {"marzban": "fail", "message": marzban_message}
+            )
+            return RedirectResponse(url=f"/licenses?{params}", status_code=303)
+    with get_db() as conn:
         conn.execute(
             "INSERT INTO licenses (code, status, max_devices, created_at, note, marzban_username, group_name, allowed_inbounds) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -497,6 +597,11 @@ def create_license(
             ),
         )
         conn.commit()
+    if marzban_message:
+        params = urllib.parse.urlencode(
+            {"marzban": "ok", "message": marzban_message}
+        )
+        return RedirectResponse(url=f"/licenses?{params}", status_code=303)
     return RedirectResponse(url="/licenses", status_code=303)
 
 

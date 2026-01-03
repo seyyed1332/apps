@@ -6,6 +6,11 @@
     <p>Create and manage access keys for the app.</p>
   </div>
 </section>
+{% if marzban_message %}
+<div class="notice {% if marzban_status == 'ok' %}notice-success{% else %}notice-error{% endif %}">
+  {{ marzban_message }}
+</div>
+{% endif %}
 
 <section class="card form-card">
   <div class="card-head centered">
