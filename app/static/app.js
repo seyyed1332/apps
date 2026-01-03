@@ -53,4 +53,25 @@
       });
     });
   }
+
+  const inboundCards = document.querySelectorAll(".inbound-item-card");
+  inboundCards.forEach((card) => {
+    const input = card.querySelector("input[type='checkbox']");
+    const row = card.querySelector(".inbound-row");
+    if (!input || !row) return;
+
+    const syncState = () => {
+      card.classList.toggle("active", input.checked);
+    };
+
+    row.addEventListener("click", (event) => {
+      if (event.target.closest("label")) return;
+      if (event.target.closest("details")) return;
+      input.checked = !input.checked;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    input.addEventListener("change", syncState);
+    syncState();
+  });
 })();

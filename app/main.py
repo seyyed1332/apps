@@ -524,6 +524,129 @@ def parse_allowed(value: Optional[str]) -> set:
     return {item.strip() for item in value.split(",") if item.strip()}
 
 
+PROTOCOL_LABELS = {
+    "vless": "VLESS",
+    "vmess": "VMESS",
+    "shadowsocks": "SHADOWSOCKS",
+    "http": "HTTP / WEBSOCKET",
+    "socks": "HTTP / WEBSOCKET",
+    "socks5": "HTTP / WEBSOCKET",
+}
+
+PROTOCOL_ORDER = [
+    "VLESS",
+    "VMESS",
+    "SHADOWSOCKS",
+    "HTTP / WEBSOCKET",
+    "OTHER",
+]
+
+TRANSPORT_ORDER = ["tcp", "ws", "grpc", "reality", "httpupgrade", "other"]
+
+
+def normalize_protocol_label(raw: str) -> str:
+    value = str(raw or "").strip().lower()
+    if not value:
+        return "OTHER"
+    return PROTOCOL_LABELS.get(value, "OTHER")
+
+
+def normalize_transport(raw_network: str, raw_tls: str) -> str:
+    tls_value = str(raw_tls or "").strip().lower()
+    if tls_value == "reality":
+        return "reality"
+    network = str(raw_network or "").strip().lower()
+    if not network:
+        return "tcp"
+    return network
+
+
+def format_inbound_label(tag: str, protocol_label: str) -> str:
+    label = str(tag or "").replace("_", " ").replace("-", " ").strip()
+    if not label:
+        return "Inbound"
+    protocol_hint = protocol_label.replace(" ", "").lower()
+    if label.lower().startswith(protocol_hint):
+        label = label[len(protocol_hint) :].strip(" _-") or label
+    if len(label) > 28:
+        label = f"{label[:25].rstrip()}..."
+    return label
+
+
+def get_security_label(raw_tls: str) -> Tuple[str, str]:
+    tls_value = str(raw_tls or "").strip().lower()
+    if tls_value == "reality":
+        return "Reality", "secure"
+    if tls_value and tls_value != "none":
+        return "TLS", "secure"
+    return "Plain", "legacy"
+
+
+def build_inbound_groups(inbounds: list, selected: set) -> list:
+    grouped: Dict[str, Dict[str, Dict[str, list]]] = {}
+    for inbound in inbounds:
+        if not isinstance(inbound, dict):
+            continue
+        protocol_label = normalize_protocol_label(inbound.get("protocol"))
+        transport = normalize_transport(inbound.get("network"), inbound.get("tls"))
+        transport_label = transport if transport in TRANSPORT_ORDER else "other"
+        security_label, security_state = get_security_label(inbound.get("tls"))
+        tag = str(inbound.get("tag") or "").strip()
+        port = str(inbound.get("port") or "-").strip()
+        short_label = format_inbound_label(tag, protocol_label)
+        advanced = transport_label in {"grpc", "httpupgrade"} or protocol_label == "OTHER"
+
+        item = {
+            "tag": tag,
+            "protocol": str(inbound.get("protocol") or "").strip(),
+            "protocol_label": protocol_label,
+            "transport": transport_label,
+            "port": port,
+            "short_label": short_label,
+            "network": str(inbound.get("network") or "").strip(),
+            "tls": str(inbound.get("tls") or "").strip(),
+            "security_label": security_label,
+            "security_state": security_state,
+            "checked": tag in selected,
+        }
+
+        grouped.setdefault(protocol_label, {}).setdefault(
+            transport_label, {"primary": [], "advanced": []}
+        )
+        bucket = "advanced" if advanced else "primary"
+        grouped[protocol_label][transport_label][bucket].append(item)
+
+    protocol_groups = []
+    for protocol_label in PROTOCOL_ORDER:
+        transports = grouped.get(protocol_label)
+        if not transports:
+            continue
+        transport_groups = []
+        for transport_label in TRANSPORT_ORDER:
+            bucket = transports.get(transport_label)
+            if not bucket:
+                continue
+            primary = sorted(
+                bucket["primary"], key=lambda item: (item["port"], item["short_label"])
+            )
+            advanced = sorted(
+                bucket["advanced"], key=lambda item: (item["port"], item["short_label"])
+            )
+            transport_groups.append(
+                {
+                    "label": transport_label,
+                    "count": len(primary) + len(advanced),
+                    "primary": primary,
+                    "advanced": advanced,
+                }
+            )
+        total = sum(group["count"] for group in transport_groups)
+        protocol_groups.append(
+            {"label": protocol_label, "count": total, "transports": transport_groups}
+        )
+    return protocol_groups
+
+
 def get_groups() -> list:
     with get_db() as conn:
         rows = conn.execute(
@@ -1078,6 +1201,7 @@ def edit_license(request: Request, code: str, _: str = Depends(require_admin)):
     license_allowed = parse_allowed(license_row.get("allowed_inbounds"))
     selected_inbounds = license_allowed or group_allowed.get(group_name, set())
     inherit_group = len(license_allowed) == 0
+    inbound_groups = build_inbound_groups(marzban_inbounds, selected_inbounds)
 
     return templates.TemplateResponse(
         "license_edit.html",
@@ -1094,6 +1218,7 @@ def edit_license(request: Request, code: str, _: str = Depends(require_admin)):
             "selected_inbounds": selected_inbounds,
             "inherit_group": inherit_group,
             "default_group": default_group,
+            "inbound_groups": inbound_groups,
         },
     )
 

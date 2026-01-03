@@ -104,26 +104,136 @@
 
         <div class="form-section">
           <div class="section-title">Inbounds</div>
-          <div class="section-note">Select custom inbounds or use the group defaults.</div>
+          <div class="section-note">Secure inbounds use TLS or Reality. Legacy inbounds are unencrypted.</div>
         </div>
-        {% if marzban_inbounds %}
+        {% if inbound_groups %}
         <label class="checkbox span-2">
           <input type="checkbox" name="inherit_inbounds" {% if inherit_group %}checked{% endif %} />
           <span>Use group inbounds ({{ group_name }})</span>
         </label>
-        <div class="inbound-column span-2">
-          {% for inbound in marzban_inbounds %}
-          <label class="inbound-pill">
-            <input
-              type="checkbox"
-              name="allowed_inbounds"
-              value="{{ inbound.tag }}"
-              {% if inbound.tag in selected_inbounds %}checked{% endif %}
-            />
-            <span>
-              {{ inbound.tag }} ({{ inbound.protocol|upper }} / {{ inbound.network }} / {{ inbound.tls }} / {{ inbound.port }})
-            </span>
-          </label>
+
+        <div class="inbound-groups span-2">
+          {% for group in inbound_groups %}
+          <section class="inbound-group">
+            <div class="inbound-group-head">
+              <h3>{{ group.label }}</h3>
+              <span class="helper">{{ group.count }} inbounds</span>
+            </div>
+            {% for transport in group.transports %}
+            <div class="inbound-transport">
+              <div class="inbound-transport-head">
+                <span class="transport-label">{{ transport.label }}</span>
+                <span class="helper">{{ transport.count }} options</span>
+              </div>
+              <div class="inbound-rows">
+                {% for inbound in transport.primary %}
+                <div class="inbound-item-card{% if inbound.checked %} active{% endif %}">
+                  <div class="inbound-row">
+                    <span class="protocol-badge {{ inbound.security_state }}">{{ inbound.protocol_label }}</span>
+                    <span class="transport">{{ inbound.transport }}</span>
+                    <span class="port">{{ inbound.port }}</span>
+                    <span class="label">{{ inbound.short_label }}</span>
+                    <label class="toggle" aria-label="Toggle inbound {{ inbound.tag }}">
+                      <input
+                        type="checkbox"
+                        name="allowed_inbounds"
+                        value="{{ inbound.tag }}"
+                        {% if inbound.checked %}checked{% endif %}
+                      />
+                      <span class="toggle-ui"></span>
+                    </label>
+                  </div>
+                  <details class="inbound-details">
+                    <summary>Technical details</summary>
+                    <div class="details-grid">
+                      <div>
+                        <div class="meta-label">Tag</div>
+                        <div class="meta-value mono">{{ inbound.tag }}</div>
+                      </div>
+                      <div>
+                        <div class="meta-label">Protocol</div>
+                        <div class="meta-value">{{ inbound.protocol|upper }}</div>
+                      </div>
+                      <div>
+                        <div class="meta-label">Transport</div>
+                        <div class="meta-value">{{ inbound.network or inbound.transport }}</div>
+                      </div>
+                      <div>
+                        <div class="meta-label">Security</div>
+                        <div class="meta-value">{{ inbound.security_label }}</div>
+                      </div>
+                      <div>
+                        <div class="meta-label">TLS</div>
+                        <div class="meta-value">{{ inbound.tls or '-' }}</div>
+                      </div>
+                      <div>
+                        <div class="meta-label">Port</div>
+                        <div class="meta-value">{{ inbound.port }}</div>
+                      </div>
+                    </div>
+                  </details>
+                </div>
+                {% endfor %}
+              </div>
+
+              {% if transport.advanced %}
+              <details class="inbound-advanced">
+                <summary>Advanced options ({{ transport.advanced|length }})</summary>
+                <div class="inbound-rows">
+                  {% for inbound in transport.advanced %}
+                  <div class="inbound-item-card{% if inbound.checked %} active{% endif %}">
+                    <div class="inbound-row">
+                      <span class="protocol-badge {{ inbound.security_state }}">{{ inbound.protocol_label }}</span>
+                      <span class="transport">{{ inbound.transport }}</span>
+                      <span class="port">{{ inbound.port }}</span>
+                      <span class="label">{{ inbound.short_label }}</span>
+                      <label class="toggle" aria-label="Toggle inbound {{ inbound.tag }}">
+                        <input
+                          type="checkbox"
+                          name="allowed_inbounds"
+                          value="{{ inbound.tag }}"
+                          {% if inbound.checked %}checked{% endif %}
+                        />
+                        <span class="toggle-ui"></span>
+                      </label>
+                    </div>
+                    <details class="inbound-details">
+                      <summary>Technical details</summary>
+                      <div class="details-grid">
+                        <div>
+                          <div class="meta-label">Tag</div>
+                          <div class="meta-value mono">{{ inbound.tag }}</div>
+                        </div>
+                        <div>
+                          <div class="meta-label">Protocol</div>
+                          <div class="meta-value">{{ inbound.protocol|upper }}</div>
+                        </div>
+                        <div>
+                          <div class="meta-label">Transport</div>
+                          <div class="meta-value">{{ inbound.network or inbound.transport }}</div>
+                        </div>
+                        <div>
+                          <div class="meta-label">Security</div>
+                          <div class="meta-value">{{ inbound.security_label }}</div>
+                        </div>
+                        <div>
+                          <div class="meta-label">TLS</div>
+                          <div class="meta-value">{{ inbound.tls or '-' }}</div>
+                        </div>
+                        <div>
+                          <div class="meta-label">Port</div>
+                          <div class="meta-value">{{ inbound.port }}</div>
+                        </div>
+                      </div>
+                    </details>
+                  </div>
+                  {% endfor %}
+                </div>
+              </details>
+              {% endif %}
+            </div>
+            {% endfor %}
+          </section>
           {% endfor %}
         </div>
         {% else %}
@@ -132,7 +242,7 @@
         </div>
         {% endif %}
 
-        <div class="form-actions">
+        <div class="action-bar">
           <button type="submit">Save License</button>
         </div>
       </form>
