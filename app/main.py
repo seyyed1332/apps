@@ -154,15 +154,16 @@ def request_text(
     url: str,
     headers: Optional[Dict[str, str]] = None,
 ) -> Tuple[Optional[str], Optional[str]]:
-    request = urllib.request.Request(url, method="GET")
-    request.add_header("User-Agent", "SeyyedMT-Panel")
-    if headers:
-        for key, value in headers.items():
-            request.add_header(key, value)
-
     try:
+        request = urllib.request.Request(url, method="GET")
+        request.add_header("User-Agent", "SeyyedMT-Panel")
+        if headers:
+            for key, value in headers.items():
+                request.add_header(key, value)
         with urllib.request.urlopen(request, timeout=12) as response:
             body = response.read().decode("utf-8", errors="ignore")
+    except ValueError as exc:
+        return None, f"Invalid URL: {exc}"
     except urllib.error.HTTPError as exc:
         detail = ""
         try:
@@ -457,9 +458,12 @@ def load_inbounds_cache(settings_data: Dict[str, str]) -> list:
 
 
 def build_subscription_userinfo(user_payload: Dict[str, Any]) -> str:
-    used = user_payload.get("used_traffic")
-    total = user_payload.get("data_limit")
-    expire = user_payload.get("expire")
+    used_raw = user_payload.get("used_traffic")
+    total_raw = user_payload.get("data_limit")
+    expire_raw = user_payload.get("expire")
+    used = int(used_raw) if isinstance(used_raw, (int, float)) else None
+    total = int(total_raw) if isinstance(total_raw, (int, float)) else None
+    expire = int(expire_raw) if isinstance(expire_raw, (int, float)) else None
     parts = []
     if isinstance(used, int) and used >= 0:
         parts.append(f"upload=0")
@@ -1032,7 +1036,12 @@ def license_subscription(code: str, request: Request):
     if error:
         raise HTTPException(status_code=502, detail=error)
 
-    subscription_url = str((user_payload or {}).get("subscription_url") or "").strip()
+    subscription_url = (user_payload or {}).get("subscription_url")
+    if not isinstance(subscription_url, str):
+        subscription_url = ""
+    subscription_url = subscription_url.strip()
+    if subscription_url and not subscription_url.startswith(("http://", "https://")):
+        subscription_url = ""
     content = ""
     if subscription_url:
         content, error = request_text(subscription_url)
@@ -1042,7 +1051,15 @@ def license_subscription(code: str, request: Request):
     if not content:
         links = (user_payload or {}).get("links") or []
         if isinstance(links, list):
-            content = "\n".join([str(link).strip() for link in links if str(link).strip()])
+            normalized_links = []
+            for link in links:
+                if isinstance(link, dict):
+                    candidate = str(link.get("link") or link.get("url") or "").strip()
+                else:
+                    candidate = str(link).strip()
+                if candidate:
+                    normalized_links.append(candidate)
+            content = "\n".join(normalized_links)
         elif isinstance(links, str):
             content = links.strip()
 
