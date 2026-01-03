@@ -8,6 +8,11 @@
 </section>
 
 <section class="card form-card">
+  {% if marzban_message %}
+  <div class="notice {% if marzban_status == 'ok' %}notice-success{% else %}notice-error{% endif %}">
+    {{ marzban_message }}
+  </div>
+  {% endif %}
   <div class="card-head">
     <h2>License Settings</h2>
     <span class="status {{ license.status }}">{{ license.status }}</span>

@@ -354,6 +354,64 @@ def marzban_get_user(
     return payload, None
 
 
+def marzban_update_user(
+    settings_data: Dict[str, str],
+    username: str,
+    allowed_tags: set,
+    status: str,
+    note: str,
+) -> Tuple[bool, str]:
+    base_url = normalize_base_url(settings_data.get("marzban_base_url", ""))
+    if not base_url:
+        return False, "Marzban base URL is missing."
+
+    token, message = marzban_token(settings_data)
+    if not token:
+        return False, message
+
+    payload: Dict[str, Any] = {"status": status}
+    if note:
+        payload["note"] = note
+
+    marzban_inbounds = load_inbounds_cache(settings_data)
+    inbounds_payload = build_inbounds_payload(allowed_tags, marzban_inbounds)
+    if allowed_tags and not inbounds_payload:
+        return (
+            False,
+            "No matching inbounds found. Run Marzban test and review group inbounds.",
+        )
+    if inbounds_payload:
+        payload["inbounds"] = inbounds_payload
+        payload["proxies"] = {protocol: {} for protocol in inbounds_payload.keys()}
+
+    data = json.dumps(payload).encode("utf-8")
+    url = f"{base_url}/api/user/{urllib.parse.quote(username)}"
+    _, error = request_json(
+        url,
+        method="PUT",
+        data=data,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+    )
+    if error and error.startswith("HTTP 405"):
+        _, error = request_json(
+            url,
+            method="PATCH",
+            data=data,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+        )
+    if error and error.startswith("HTTP 404"):
+        return marzban_create_user(settings_data, username, allowed_tags, note)
+    if error:
+        return False, f"Marzban user update failed: {error}"
+    return True, "Marzban user updated."
+
+
 def build_subscription_profile(user_payload: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "subscription_url": user_payload.get("subscription_url") or "",
@@ -803,6 +861,8 @@ def edit_license(request: Request, code: str, _: str = Depends(require_admin)):
     if not license_row:
         raise HTTPException(status_code=404, detail="License not found")
     settings_data = get_settings()
+    marzban_status = request.query_params.get("marzban", "")
+    marzban_message = request.query_params.get("message", "")
     marzban_inbounds = load_inbounds_cache(settings_data)
     groups = get_groups()
     group_allowed = get_group_allowed_map(groups)
@@ -821,6 +881,8 @@ def edit_license(request: Request, code: str, _: str = Depends(require_admin)):
             "license": license_row,
             "groups": groups,
             "group_name": group_name,
+            "marzban_status": marzban_status,
+            "marzban_message": marzban_message,
             "marzban_inbounds": marzban_inbounds,
             "selected_inbounds": selected_inbounds,
             "inherit_group": inherit_group,
@@ -875,6 +937,25 @@ async def update_license(request: Request, code: str, _: str = Depends(require_a
             ),
         )
         conn.commit()
+
+    marzban_status = ""
+    marzban_message = ""
+    if marzban_username:
+        settings_data = get_settings()
+        group_allowed = get_group_allowed_map(groups)
+        effective_tags = group_allowed.get(group_name, set()) if inherit_group else set(tags)
+        ok, marzban_message = marzban_update_user(
+            settings_data,
+            marzban_username,
+            effective_tags,
+            status,
+            note,
+        )
+        marzban_status = "ok" if ok else "fail"
+
+    if marzban_status and marzban_message:
+        params = urllib.parse.urlencode({"marzban": marzban_status, "message": marzban_message})
+        return RedirectResponse(url=f"/licenses/{code}?{params}", status_code=303)
     return RedirectResponse(url=f"/licenses/{code}", status_code=303)
 
 
