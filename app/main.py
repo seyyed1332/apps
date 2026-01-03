@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -148,6 +148,35 @@ def request_json(
         return json.loads(body), None
     except json.JSONDecodeError:
         return None, "Unexpected response from Marzban."
+
+
+def request_text(
+    url: str,
+    headers: Optional[Dict[str, str]] = None,
+) -> Tuple[Optional[str], Optional[str]]:
+    request = urllib.request.Request(url, method="GET")
+    request.add_header("User-Agent", "SeyyedMT-Panel")
+    if headers:
+        for key, value in headers.items():
+            request.add_header(key, value)
+
+    try:
+        with urllib.request.urlopen(request, timeout=12) as response:
+            body = response.read().decode("utf-8", errors="ignore")
+    except urllib.error.HTTPError as exc:
+        detail = ""
+        try:
+            detail = exc.read().decode("utf-8", errors="ignore").strip()
+        except Exception:
+            detail = ""
+        message = f"HTTP {exc.code}"
+        if detail:
+            message = f"{message}: {detail[:200]}"
+        return None, message
+    except urllib.error.URLError as exc:
+        return None, f"Connection failed: {exc.reason}"
+
+    return body, None
 
 
 def marzban_token(settings: Dict[str, str]) -> Tuple[Optional[str], str]:
@@ -340,6 +369,8 @@ def require_app_token(request: Request) -> None:
     if not APP_PUBLIC_TOKEN:
         return
     token = request.headers.get("X-App-Token", "").strip()
+    if not token:
+        token = request.query_params.get("token", "").strip()
     if not token or not secrets.compare_digest(token, APP_PUBLIC_TOKEN):
         raise HTTPException(status_code=401, detail="Invalid app token")
 
@@ -423,6 +454,34 @@ def load_inbounds_cache(settings_data: Dict[str, str]) -> list:
         return parsed if isinstance(parsed, list) else []
     except json.JSONDecodeError:
         return []
+
+
+def build_subscription_userinfo(user_payload: Dict[str, Any]) -> str:
+    used = user_payload.get("used_traffic")
+    total = user_payload.get("data_limit")
+    expire = user_payload.get("expire")
+    parts = []
+    if isinstance(used, int) and used >= 0:
+        parts.append(f"upload=0")
+        parts.append(f"download={used}")
+    if isinstance(total, int) and total > 0:
+        parts.append(f"total={total}")
+    if isinstance(expire, int) and expire > 0:
+        parts.append(f"expire={expire}")
+    return "; ".join(parts)
+
+
+def panel_base_url(request: Request) -> str:
+    return str(request.base_url).rstrip("/")
+
+
+def build_panel_subscription_url(request: Request, code: str) -> str:
+    base = panel_base_url(request)
+    url = f"{base}/api/license/{code}/subscription"
+    if APP_PUBLIC_TOKEN:
+        token = urllib.parse.quote(APP_PUBLIC_TOKEN)
+        url = f"{url}?token={token}"
+    return url
 
 
 def get_license(code: str) -> Optional[Dict[str, Any]]:
@@ -951,9 +1010,50 @@ def license_profile(code: str, request: Request):
             "license": code,
             "username": username,
             "group": group_name,
+            "subscription_url": build_panel_subscription_url(request, code),
         }
     )
     return profile
+
+
+@app.get("/api/license/{code}/subscription")
+def license_subscription(code: str, request: Request):
+    require_app_token(request)
+    license_row = get_license(code)
+    if not license_row:
+        raise HTTPException(status_code=404, detail="License not found")
+
+    settings_data = get_settings()
+    username = str(license_row.get("marzban_username") or "").strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="Missing Marzban username")
+
+    user_payload, error = marzban_get_user(settings_data, username)
+    if error:
+        raise HTTPException(status_code=502, detail=error)
+
+    subscription_url = str((user_payload or {}).get("subscription_url") or "").strip()
+    content = ""
+    if subscription_url:
+        content, error = request_text(subscription_url)
+        if error:
+            content = ""
+
+    if not content:
+        links = (user_payload or {}).get("links") or []
+        if isinstance(links, list):
+            content = "\n".join([str(link).strip() for link in links if str(link).strip()])
+        elif isinstance(links, str):
+            content = links.strip()
+
+    if not content:
+        raise HTTPException(status_code=404, detail="No subscription content available")
+
+    headers = {}
+    userinfo = build_subscription_userinfo(user_payload or {})
+    if userinfo:
+        headers["subscription-userinfo"] = userinfo
+    return Response(content=content, media_type="text/plain; charset=utf-8", headers=headers)
 
 
 @app.post("/api/license/free")
@@ -1030,6 +1130,7 @@ def create_free_license(payload: FreeSignup, request: Request):
             "license": code,
             "username": username,
             "group": group_name,
+            "subscription_url": build_panel_subscription_url(request, code),
         }
     )
     return profile

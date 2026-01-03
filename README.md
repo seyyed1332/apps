@@ -24,4 +24,8 @@ Open: http://127.0.0.1:8080
 - Use the Settings page to test Marzban connectivity via `/api/admin/token`.
 - Manage groups and per-group inbounds after the Marzban test loads inbound tags.
 - API endpoints are ready for device heartbeats and license validation.
-- App endpoints: `POST /api/license/free` and `GET /api/license/{code}/profile` (require `X-App-Token` if set).
+- App endpoints:
+  - `POST /api/license/free`
+  - `GET /api/license/{code}/profile`
+  - `GET /api/license/{code}/subscription`
+  (require `X-App-Token` or `?token=` if set).
