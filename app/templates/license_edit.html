@@ -132,7 +132,17 @@
                     <span class="protocol-badge {{ inbound.security_state }}">{{ inbound.protocol_label }}</span>
                     <span class="transport">{{ inbound.transport }}</span>
                     <span class="port">{{ inbound.port }}</span>
-                    <span class="label">{{ inbound.short_label }}</span>
+                    <span class="label">
+                      <span class="label-title">{{ inbound.short_label }}</span>
+                      <span class="security-tag {{ inbound.security_state }}">{{ inbound.security_label }}</span>
+                      <button
+                        class="details-toggle"
+                        type="button"
+                        data-details-target="details-{{ inbound.safe_id }}"
+                      >
+                        Details
+                      </button>
+                    </span>
                     <label class="toggle" aria-label="Toggle inbound {{ inbound.tag }}">
                       <input
                         type="checkbox"
@@ -143,8 +153,7 @@
                       <span class="toggle-ui"></span>
                     </label>
                   </div>
-                  <details class="inbound-details">
-                    <summary>Technical details</summary>
+                  <div class="inbound-details" id="details-{{ inbound.safe_id }}" hidden>
                     <div class="details-grid">
                       <div>
                         <div class="meta-label">Tag</div>
@@ -171,7 +180,7 @@
                         <div class="meta-value">{{ inbound.port }}</div>
                       </div>
                     </div>
-                  </details>
+                  </div>
                 </div>
                 {% endfor %}
               </div>
@@ -186,7 +195,17 @@
                       <span class="protocol-badge {{ inbound.security_state }}">{{ inbound.protocol_label }}</span>
                       <span class="transport">{{ inbound.transport }}</span>
                       <span class="port">{{ inbound.port }}</span>
-                      <span class="label">{{ inbound.short_label }}</span>
+                      <span class="label">
+                        <span class="label-title">{{ inbound.short_label }}</span>
+                        <span class="security-tag {{ inbound.security_state }}">{{ inbound.security_label }}</span>
+                        <button
+                          class="details-toggle"
+                          type="button"
+                          data-details-target="details-{{ inbound.safe_id }}"
+                        >
+                          Details
+                        </button>
+                      </span>
                       <label class="toggle" aria-label="Toggle inbound {{ inbound.tag }}">
                         <input
                           type="checkbox"
@@ -197,8 +216,7 @@
                         <span class="toggle-ui"></span>
                       </label>
                     </div>
-                    <details class="inbound-details">
-                      <summary>Technical details</summary>
+                    <div class="inbound-details" id="details-{{ inbound.safe_id }}" hidden>
                       <div class="details-grid">
                         <div>
                           <div class="meta-label">Tag</div>
@@ -225,7 +243,7 @@
                           <div class="meta-value">{{ inbound.port }}</div>
                         </div>
                       </div>
-                    </details>
+                    </div>
                   </div>
                   {% endfor %}
                 </div>

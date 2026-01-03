@@ -564,13 +564,27 @@ def normalize_transport(raw_network: str, raw_tls: str) -> str:
 def format_inbound_label(tag: str, protocol_label: str) -> str:
     label = str(tag or "").replace("_", " ").replace("-", " ").strip()
     if not label:
-        return "Inbound"
+        return "Default"
     protocol_hint = protocol_label.replace(" ", "").lower()
     if label.lower().startswith(protocol_hint):
         label = label[len(protocol_hint) :].strip(" _-") or label
+    label = re.sub(
+        r"\b(vless|vmess|shadowsocks|trojan|tcp|ws|grpc|reality|httpupgrade|tls)\b",
+        "",
+        label,
+        flags=re.IGNORECASE,
+    )
+    label = re.sub(r"\s+", " ", label).strip()
+    if not label:
+        label = "Default"
     if len(label) > 28:
         label = f"{label[:25].rstrip()}..."
     return label
+
+
+def sanitize_identifier(value: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9_-]", "-", value or "")
+    return cleaned or "inbound"
 
 
 def get_security_label(raw_tls: str) -> Tuple[str, str]:
@@ -598,6 +612,7 @@ def build_inbound_groups(inbounds: list, selected: set) -> list:
 
         item = {
             "tag": tag,
+            "safe_id": sanitize_identifier(tag),
             "protocol": str(inbound.get("protocol") or "").strip(),
             "protocol_label": protocol_label,
             "transport": transport_label,

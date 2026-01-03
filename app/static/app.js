@@ -66,12 +66,31 @@
 
     row.addEventListener("click", (event) => {
       if (event.target.closest("label")) return;
-      if (event.target.closest("details")) return;
+      if (event.target.closest("button")) return;
+      if (event.target.closest(".inbound-details")) return;
       input.checked = !input.checked;
       input.dispatchEvent(new Event("change", { bubbles: true }));
     });
 
     input.addEventListener("change", syncState);
     syncState();
+  });
+
+  const detailToggles = document.querySelectorAll("[data-details-target]");
+  detailToggles.forEach((toggle) => {
+    toggle.addEventListener("click", () => {
+      const targetId = toggle.getAttribute("data-details-target");
+      if (!targetId) return;
+      const target = document.getElementById(targetId);
+      if (!target) return;
+      const isHidden = target.hasAttribute("hidden");
+      if (isHidden) {
+        target.removeAttribute("hidden");
+        toggle.textContent = "Hide details";
+      } else {
+        target.setAttribute("hidden", "");
+        toggle.textContent = "Details";
+      }
+    });
   });
 })();
