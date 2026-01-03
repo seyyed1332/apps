@@ -22,6 +22,7 @@ load_dotenv()
 APP_TITLE = os.getenv("APP_TITLE", "SeyyedMT Control Panel")
 ADMIN_USER = os.getenv("ADMIN_USER", "admin")
 ADMIN_PASS = os.getenv("ADMIN_PASS", "admin")
+APP_PUBLIC_TOKEN = os.getenv("APP_PUBLIC_TOKEN", "").strip()
 
 security = HTTPBasic()
 
@@ -70,6 +71,11 @@ class DeviceHeartbeat(BaseModel):
     app_version: Optional[str] = None
     model: Optional[str] = None
     os_version: Optional[str] = None
+
+
+class FreeSignup(BaseModel):
+    username: str
+    note: Optional[str] = None
 
 
 def now_iso() -> str:
@@ -289,12 +295,53 @@ def marzban_create_user(
     return True, "Marzban user created."
 
 
+def marzban_get_user(
+    settings_data: Dict[str, str],
+    username: str,
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    base_url = normalize_base_url(settings_data.get("marzban_base_url", ""))
+    if not base_url:
+        return None, "Marzban base URL is missing."
+    token, message = marzban_token(settings_data)
+    if not token:
+        return None, message
+    url = f"{base_url}/api/user/{urllib.parse.quote(username)}"
+    payload, error = request_json(
+        url,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    if error:
+        return None, error
+    if not isinstance(payload, dict):
+        return None, "Unexpected Marzban user response."
+    return payload, None
+
+
+def build_subscription_profile(user_payload: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "subscription_url": user_payload.get("subscription_url") or "",
+        "expire": user_payload.get("expire"),
+        "data_limit": user_payload.get("data_limit"),
+        "used_traffic": user_payload.get("used_traffic"),
+        "status": user_payload.get("status"),
+        "links": user_payload.get("links") or [],
+    }
+
+
 def require_admin(credentials: HTTPBasicCredentials = Depends(security)) -> str:
     valid_user = secrets.compare_digest(credentials.username, ADMIN_USER)
     valid_pass = secrets.compare_digest(credentials.password, ADMIN_PASS)
     if not (valid_user and valid_pass):
         raise HTTPException(status_code=401, headers={"WWW-Authenticate": "Basic"})
     return credentials.username
+
+
+def require_app_token(request: Request) -> None:
+    if not APP_PUBLIC_TOKEN:
+        return
+    token = request.headers.get("X-App-Token", "").strip()
+    if not token or not secrets.compare_digest(token, APP_PUBLIC_TOKEN):
+        raise HTTPException(status_code=401, detail="Invalid app token")
 
 
 def get_settings() -> Dict[str, str]:
@@ -874,6 +921,118 @@ def verify_license(code: str):
         "group": group_name,
         "allowed_inbounds": effective_inbounds,
     }
+
+
+@app.get("/api/license/{code}/profile")
+def license_profile(code: str, request: Request):
+    require_app_token(request)
+    license_row = get_license(code)
+    if not license_row:
+        return JSONResponse(status_code=404, content={"status": "not_found"})
+
+    settings_data = get_settings()
+    username = str(license_row.get("marzban_username") or "").strip()
+    if not username:
+        return JSONResponse(
+            status_code=400,
+            content={"status": "missing_username"},
+        )
+
+    user_payload, error = marzban_get_user(settings_data, username)
+    if error:
+        return JSONResponse(status_code=502, content={"status": "error", "message": error})
+
+    groups = get_groups()
+    default_group = get_default_group_name(groups)
+    group_name = license_row.get("group_name") or default_group
+    profile = build_subscription_profile(user_payload or {})
+    profile.update(
+        {
+            "license": code,
+            "username": username,
+            "group": group_name,
+        }
+    )
+    return profile
+
+
+@app.post("/api/license/free")
+def create_free_license(payload: FreeSignup, request: Request):
+    require_app_token(request)
+    username = payload.username.strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="Username required")
+
+    with get_db() as conn:
+        existing = conn.execute(
+            "SELECT code, status, marzban_username, group_name FROM licenses WHERE marzban_username = ?",
+            (username,),
+        ).fetchone()
+        if existing:
+            row = dict(existing)
+            return {
+                "status": "exists",
+                "license": row["code"],
+                "username": row["marzban_username"],
+                "group": row.get("group_name") or "free",
+            }
+
+    settings_data = get_settings()
+    groups = get_groups()
+    free_group = next(
+        (g for g in groups if str(g.get("name") or "").lower() == "free"),
+        None,
+    )
+    if free_group is None:
+        free_group = next((g for g in groups if g.get("is_default")), None)
+    group_name = free_group.get("name") if free_group else "free"
+    group_inbounds = free_group.get("allowed_inbounds") if free_group else ""
+    allowed_tags = parse_allowed(group_inbounds)
+
+    ok, message = marzban_create_user(
+        settings_data,
+        username,
+        allowed_tags,
+        payload.note or "",
+    )
+    if not ok:
+        return JSONResponse(status_code=502, content={"status": "error", "message": message})
+
+    code = generate_license_code()
+    max_devices = int(settings_data.get("default_max_devices", "1") or 1)
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO licenses (code, status, max_devices, created_at, note, marzban_username, group_name, allowed_inbounds) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                code,
+                "active",
+                max_devices,
+                now_iso(),
+                payload.note or "",
+                username,
+                group_name,
+                group_inbounds,
+            ),
+        )
+        conn.commit()
+
+    profile = {}
+    user_payload, error = marzban_get_user(settings_data, username)
+    if error:
+        profile = {"status": "warning", "message": error}
+    else:
+        profile = build_subscription_profile(user_payload or {})
+
+    profile.update(
+        {
+            "status": "created",
+            "license": code,
+            "username": username,
+            "group": group_name,
+        }
+    )
+    return profile
 
 
 @app.get("/api/settings")
