@@ -69,22 +69,28 @@
         <button type="submit" class="ghost">Set Default</button>
       </form>
     </div>
-    <form class="form-grid inbound-grid" method="post" action="/groups/{{ group.name }}/inbounds">
-      <div class="inbound-row span-2">
-        {% for inbound in marzban_inbounds %}
-        <label class="inbound-pill">
-          <input
-            type="checkbox"
-            name="allowed_inbounds"
-            value="{{ inbound.tag }}"
-            {% if inbound.tag in group_allowed.get(group.name, []) %}checked{% endif %}
-          />
-          <span>
-            {{ inbound.tag }} ({{ inbound.protocol|upper }} / {{ inbound.network }} / {{ inbound.tls }} / {{ inbound.port }})
-          </span>
-        </label>
-        {% endfor %}
+    <form class="form-grid" method="post" action="/groups/{{ group.name }}/inbounds">
+      {% for protocol, inbounds in (marzban_inbounds|sort(attribute='protocol'))|groupby('protocol') %}
+      <div class="inbound-group span-2">
+        <div class="inbound-group-head">
+          <h3>{{ protocol|upper }}</h3>
+        </div>
+        <div class="inbound-list">
+          {% for inbound in inbounds|sort(attribute='tag') %}
+          <label class="inbound-pill">
+            <input
+              type="checkbox"
+              name="allowed_inbounds"
+              value="{{ inbound.tag }}"
+              {% if inbound.tag in group_allowed.get(group.name, []) %}checked{% endif %}
+            />
+            <span>{{ inbound.tag }}</span>
+          </label>
+          {% endfor %}
+        </div>
       </div>
+      {% endfor %}
+      
       <div class="form-actions">
         <button type="submit">Save Inbounds</button>
       </div>
