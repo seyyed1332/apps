@@ -137,6 +137,18 @@ body[data-menu-open="true"] .menu-panel {
   margin: 0 auto;
 }
 
+.split-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
 .page-head {
   display: flex;
   align-items: flex-end;
@@ -183,6 +195,32 @@ body[data-menu-open="true"] .menu-panel {
   border-radius: var(--radius-md);
   padding: var(--space-3);
   box-shadow: var(--shadow-card);
+}
+
+.meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-1);
+}
+
+.meta-item {
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+
+.meta-label {
+  color: var(--color-text-subtle);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.meta-value {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .stat-card {
@@ -353,6 +391,25 @@ body[data-menu-open="true"] .menu-panel {
   box-shadow: 0 0 0 2px var(--color-primary-soft);
 }
 
+.form-section {
+  grid-column: 1 / -1;
+  margin-top: var(--space-1);
+  padding-top: var(--space-1);
+  border-top: 1px solid var(--color-border);
+}
+
+.section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.section-note {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-text-subtle);
+}
+
 .form-grid .span-2 {
   grid-column: 1 / -1;
 }
@@ -459,6 +516,17 @@ button.ghost {
   border: 1px solid var(--color-border-strong);
 }
 
+button.danger {
+  background: rgba(224, 107, 107, 0.2);
+  border: 1px solid rgba(224, 107, 107, 0.4);
+  color: #f2b3b3;
+}
+
+button.danger:hover {
+  filter: none;
+  background: rgba(224, 107, 107, 0.28);
+}
+
 .ghost-link {
   display: inline-flex;
   align-items: center;
@@ -552,6 +620,23 @@ button.ghost {
   font-weight: 600;
 }
 
+.action-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.action-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.helper {
+  color: var(--color-text-subtle);
+  font-size: 12px;
+}
+
 @media (max-width: 900px) {
   .topbar {
     padding: var(--space-2);
@@ -572,6 +657,10 @@ button.ghost {
   .page-head {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .split-grid {
+    grid-template-columns: 1fr;
   }
 }
 

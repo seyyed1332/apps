@@ -2,101 +2,164 @@
 {% block content %}
 <section class="page-head">
   <div>
-    <h1>License {{ license.code }}</h1>
-    <p>Manage user settings, group, and allowed inbounds.</p>
+    <h1>License <span class="mono">{{ license.code }}</span></h1>
+    <p>Manage access, limits, and inbounds for this user.</p>
   </div>
+  <span class="status {{ license.status }}">{{ license.status }}</span>
 </section>
 
-<section class="card form-card">
-  {% if marzban_message %}
-  <div class="notice {% if marzban_status == 'ok' %}notice-success{% else %}notice-error{% endif %}">
-    {{ marzban_message }}
-  </div>
-  {% endif %}
-  <div class="card-head">
-    <h2>License Settings</h2>
-    <span class="status {{ license.status }}">{{ license.status }}</span>
-  </div>
-  <form class="form-grid" method="post" action="/licenses/{{ license.code }}">
-    <label>
-      <span>User Login</span>
-      <input type="text" name="marzban_username" value="{{ license.marzban_username or '' }}" />
-    </label>
-    <label>
-      <span>Group</span>
-      <select name="group_name">
-        {% for group in groups %}
-        <option value="{{ group.name }}" {% if group.name == group_name %}selected{% endif %}>
-          {{ group.name }}
-        </option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>
-      <span>Max Devices</span>
-      <input type="number" name="max_devices" min="1" value="{{ license.max_devices }}" />
-    </label>
-    <label>
-      <span>Status</span>
-      <select name="status">
-        <option value="active" {% if license.status == "active" %}selected{% endif %}>active</option>
-        <option value="disabled" {% if license.status == "disabled" %}selected{% endif %}>disabled</option>
-      </select>
-    </label>
-    <label class="span-2">
-      <span>Note</span>
-      <input type="text" name="note" value="{{ license.note or '' }}" />
-    </label>
-    <label>
-      <span>Free Reset Interval (hours)</span>
-      <input type="number" name="free_reset_hours" min="0" value="{{ license.free_reset_hours or 0 }}" />
-    </label>
-    <label>
-      <span>Free Reset Data (GB)</span>
-      <input type="number" name="free_reset_data_gb" min="0" value="{{ license.free_reset_data_gb or 0 }}" />
-    </label>
-    <label>
-      <span>Free Reset Days</span>
-      <input type="number" name="free_reset_days" min="0" value="{{ license.free_reset_days or 0 }}" />
-    </label>
-    <div class="form-note span-2">
-      Next reset: {{ license.free_next_reset_at or '-' }} | Last reset: {{ license.free_last_reset_at or '-' }}
-    </div>
+{% if marzban_message %}
+<div class="notice {% if marzban_status == 'ok' %}notice-success{% else %}notice-error{% endif %}">
+  {{ marzban_message }}
+</div>
+{% endif %}
 
-    {% if marzban_inbounds %}
-    <div class="span-2">
-      <label class="checkbox">
-        <input type="checkbox" name="inherit_inbounds" {% if inherit_group %}checked{% endif %} />
-        <span>Use group inbounds ({{ group_name }})</span>
-      </label>
-    </div>
-    <div class="inbound-column span-2">
-      {% for inbound in marzban_inbounds %}
-      <label class="inbound-pill">
-        <input
-          type="checkbox"
-          name="allowed_inbounds"
-          value="{{ inbound.tag }}"
-          {% if inbound.tag in selected_inbounds %}checked{% endif %}
-        />
-        <span>
-          {{ inbound.tag }} ({{ inbound.protocol|upper }} / {{ inbound.network }} / {{ inbound.tls }} / {{ inbound.port }})
-        </span>
-      </label>
-      {% endfor %}
-    </div>
-    {% else %}
-    <div class="form-note span-2">
-      Run Marzban test in Settings to load inbounds.
-    </div>
-    {% endif %}
+<section class="split-grid">
+  <div class="stack">
+    <section class="card">
+      <div class="card-head">
+        <h2>Overview</h2>
+      </div>
+      <div class="meta-grid">
+        <div class="meta-item">
+          <div class="meta-label">License Code</div>
+          <div class="meta-value mono">{{ license.code }}</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">Devices</div>
+          <div class="meta-value">{{ device_count }} / {{ license.max_devices }}</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">Group</div>
+          <div class="meta-value">{{ group_name }}</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">User</div>
+          <div class="meta-value">{{ license.marzban_username or '-' }}</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">Created</div>
+          <div class="meta-value">{{ license.created_at }}</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">Last Used</div>
+          <div class="meta-value">{{ license.last_used_at or '-' }}</div>
+        </div>
+      </div>
+    </section>
 
-    <div class="form-actions">
-      <button type="submit">Save License</button>
-    </div>
-  </form>
-  <form class="form-actions" method="post" action="/licenses/{{ license.code }}/reset-free">
-    <button type="submit">Run Free Reset Now</button>
-  </form>
+    <section class="card form-card">
+      <div class="card-head">
+        <h2>License Settings</h2>
+      </div>
+      <form class="form-grid" method="post" action="/licenses/{{ license.code }}">
+        <label>
+          <span>User Login</span>
+          <input type="text" name="marzban_username" value="{{ license.marzban_username or '' }}" />
+        </label>
+        <label>
+          <span>Group</span>
+          <select name="group_name">
+            {% for group in groups %}
+            <option value="{{ group.name }}" {% if group.name == group_name %}selected{% endif %}>
+              {{ group.name }}
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          <span>Max Devices</span>
+          <input type="number" name="max_devices" min="1" value="{{ license.max_devices }}" />
+        </label>
+        <label>
+          <span>Status</span>
+          <select name="status">
+            <option value="active" {% if license.status == "active" %}selected{% endif %}>active</option>
+            <option value="disabled" {% if license.status == "disabled" %}selected{% endif %}>disabled</option>
+          </select>
+        </label>
+        <label class="span-2">
+          <span>Note</span>
+          <input type="text" name="note" value="{{ license.note or '' }}" />
+        </label>
+
+        <div class="form-section">
+          <div class="section-title">Free Reset</div>
+          <div class="section-note">
+            Next reset: {{ license.free_next_reset_at or '-' }} | Last reset: {{ license.free_last_reset_at or '-' }}
+          </div>
+        </div>
+        <label>
+          <span>Free Reset Interval (hours)</span>
+          <input type="number" name="free_reset_hours" min="0" value="{{ license.free_reset_hours or 0 }}" />
+        </label>
+        <label>
+          <span>Free Reset Data (GB)</span>
+          <input type="number" name="free_reset_data_gb" min="0" value="{{ license.free_reset_data_gb or 0 }}" />
+        </label>
+        <label>
+          <span>Free Reset Days</span>
+          <input type="number" name="free_reset_days" min="0" value="{{ license.free_reset_days or 0 }}" />
+        </label>
+
+        <div class="form-section">
+          <div class="section-title">Inbounds</div>
+          <div class="section-note">Select custom inbounds or use the group defaults.</div>
+        </div>
+        {% if marzban_inbounds %}
+        <label class="checkbox span-2">
+          <input type="checkbox" name="inherit_inbounds" {% if inherit_group %}checked{% endif %} />
+          <span>Use group inbounds ({{ group_name }})</span>
+        </label>
+        <div class="inbound-column span-2">
+          {% for inbound in marzban_inbounds %}
+          <label class="inbound-pill">
+            <input
+              type="checkbox"
+              name="allowed_inbounds"
+              value="{{ inbound.tag }}"
+              {% if inbound.tag in selected_inbounds %}checked{% endif %}
+            />
+            <span>
+              {{ inbound.tag }} ({{ inbound.protocol|upper }} / {{ inbound.network }} / {{ inbound.tls }} / {{ inbound.port }})
+            </span>
+          </label>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="form-note">
+          Run Marzban test in Settings to load inbounds.
+        </div>
+        {% endif %}
+
+        <div class="form-actions">
+          <button type="submit">Save License</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <div class="stack">
+    <section class="card">
+      <div class="card-head">
+        <h2>Actions</h2>
+      </div>
+      <div class="action-list">
+        <form class="action-row" method="post" action="/licenses/{{ license.code }}/reset-free">
+          <button type="submit">Run Free Reset Now</button>
+          <div class="helper">Applies the current free reset settings immediately.</div>
+        </form>
+        <form
+          class="action-row"
+          method="post"
+          action="/licenses/{{ license.code }}/delete"
+          onsubmit="return confirm('Delete this license? This cannot be undone.')"
+        >
+          <button type="submit" class="danger">Delete License</button>
+          <div class="helper">Removes the license and linked devices. Marzban user will be disabled if linked.</div>
+        </form>
+      </div>
+    </section>
+  </div>
 </section>
 {% endblock %}

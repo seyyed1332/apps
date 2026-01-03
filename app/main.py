@@ -1065,6 +1065,7 @@ def edit_license(request: Request, code: str, _: str = Depends(require_admin)):
     license_row = get_license(code)
     if not license_row:
         raise HTTPException(status_code=404, detail="License not found")
+    device_count = count_devices_for_license(code)
     settings_data = get_settings()
     marzban_status = request.query_params.get("marzban", "")
     marzban_message = request.query_params.get("message", "")
@@ -1084,6 +1085,7 @@ def edit_license(request: Request, code: str, _: str = Depends(require_admin)):
             "request": request,
             "title": f"License {code}",
             "license": license_row,
+            "device_count": device_count,
             "groups": groups,
             "group_name": group_name,
             "marzban_status": marzban_status,
@@ -1178,6 +1180,43 @@ async def update_license(request: Request, code: str, _: str = Depends(require_a
         params = urllib.parse.urlencode({"marzban": marzban_status, "message": marzban_message})
         return RedirectResponse(url=f"/licenses/{code}?{params}", status_code=303)
     return RedirectResponse(url=f"/licenses/{code}", status_code=303)
+
+
+@app.post("/licenses/{code}/delete")
+def delete_license(code: str, _: str = Depends(require_admin)):
+    license_row = get_license(code)
+    if not license_row:
+        raise HTTPException(status_code=404, detail="License not found")
+
+    marzban_status = "ok"
+    marzban_message = ""
+    marzban_username = str(license_row.get("marzban_username") or "").strip()
+    if marzban_username:
+        settings_data = get_settings()
+        groups = get_groups()
+        group_allowed = get_group_allowed_map(groups)
+        group_name = license_row.get("group_name") or get_default_group_name(groups)
+        license_allowed = parse_allowed(license_row.get("allowed_inbounds"))
+        effective_tags = license_allowed or group_allowed.get(group_name, set())
+        ok, marzban_message = marzban_update_user(
+            settings_data,
+            marzban_username,
+            effective_tags,
+            "disabled",
+            str(license_row.get("note") or "").strip(),
+        )
+        marzban_status = "ok" if ok else "fail"
+
+    with get_db() as conn:
+        conn.execute("DELETE FROM devices WHERE license_code = ?", (code,))
+        conn.execute("DELETE FROM licenses WHERE code = ?", (code,))
+        conn.commit()
+
+    message = "License deleted."
+    if marzban_message:
+        message = f"{message} {marzban_message}"
+    params = urllib.parse.urlencode({"marzban": marzban_status, "message": message})
+    return RedirectResponse(url=f"/licenses?{params}", status_code=303)
 
 
 @app.post("/licenses/{code}/reset-free")
