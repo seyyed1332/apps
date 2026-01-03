@@ -1631,6 +1631,21 @@ def create_free_license(payload: FreeSignup, request: Request):
     )
 
 
+@app.get("/api/license/free/check")
+def check_free_license(request: Request, device_id: str = ""):
+    require_app_token(request)
+    device_id = str(device_id or "").strip()
+    if not device_id:
+        raise HTTPException(status_code=400, detail="Device ID required")
+    settings_data = get_settings()
+    license_row = find_license_by_device(device_id)
+    if not license_row:
+        return {"status": "not_found"}
+    if license_row.get("status") != "active":
+        raise HTTPException(status_code=403, detail="License is disabled.")
+    return build_free_signup_response("exists", license_row, request, settings_data)
+
+
 @app.get("/api/settings")
 def public_settings():
     settings_data = get_settings()
