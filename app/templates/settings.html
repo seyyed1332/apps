@@ -113,6 +113,36 @@
 
 <section class="card form-card">
   <div class="card-head">
+    <h2>App Updates</h2>
+  </div>
+  <form class="form-grid" method="post" action="/settings/updates">
+    <label class="checkbox span-2">
+      <input type="checkbox" name="update_enabled" {% if update_enabled %}checked{% endif %} />
+      <span>Enable update checks</span>
+    </label>
+    <label class="checkbox span-2">
+      <input type="checkbox" name="update_mandatory" {% if update_mandatory %}checked{% endif %} />
+      <span>Force update (block app until updated)</span>
+    </label>
+    {% for field in update_fields %}
+    <label class="span-2">
+      <span>{{ field.label }}</span>
+      <input
+        type="{{ field.type }}"
+        name="{{ field.key }}"
+        value="{{ settings.get(field.key, '') }}"
+        placeholder=""
+      />
+    </label>
+    {% endfor %}
+    <div class="form-actions">
+      <button type="submit">Save Updates</button>
+    </div>
+  </form>
+</section>
+
+<section class="card form-card">
+  <div class="card-head">
     <h2>Core Settings</h2>
   </div>
   <form class="form-grid" method="post" action="/settings">

@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import secrets
 import urllib.error
 import urllib.parse
@@ -37,6 +38,11 @@ SETTINGS_FIELDS = [
     {"key": "user_prefix", "label": "User Prefix", "type": "text"},
 ]
 
+UPDATE_FIELDS = [
+    {"key": "update_github_repo", "label": "GitHub Releases Repo (owner/repo)", "type": "text"},
+    {"key": "update_asset_match", "label": "Asset name contains (optional)", "type": "text"},
+]
+
 DEFAULT_SETTINGS = {
     "marzban_base_url": os.getenv("MARZBAN_BASE_URL", ""),
     "marzban_username": os.getenv("MARZBAN_USERNAME", ""),
@@ -50,6 +56,10 @@ DEFAULT_SETTINGS = {
     "marzban_last_message": "",
     "marzban_inbounds_cache": "",
     "allow_free_signup": os.getenv("ALLOW_FREE_SIGNUP", "true"),
+    "update_enabled": os.getenv("UPDATE_ENABLED", "true"),
+    "update_mandatory": os.getenv("UPDATE_MANDATORY", "false"),
+    "update_github_repo": os.getenv("UPDATE_GITHUB_REPO", "seyyed1332/application-release"),
+    "update_asset_match": os.getenv("UPDATE_ASSET_MATCH", "universal"),
 }
 
 NUMERIC_SETTING_KEYS = {
@@ -76,8 +86,11 @@ class DeviceHeartbeat(BaseModel):
     device_id: str
     install_id: Optional[str] = None
     app_version: Optional[str] = None
+    manufacturer: Optional[str] = None
     model: Optional[str] = None
+    device: Optional[str] = None
     os_version: Optional[str] = None
+    abi: Optional[str] = None
 
 
 class FreeSignup(BaseModel):
@@ -522,6 +535,56 @@ def load_inbounds_cache(settings_data: Dict[str, str]) -> list:
         return []
 
 
+def parse_version(raw: str) -> list:
+    if not raw:
+        return []
+    cleaned = raw.strip().lower()
+    if cleaned.startswith("v"):
+        cleaned = cleaned[1:]
+    parts = [int(p) for p in re.split(r"[^\d]+", cleaned) if p.isdigit()]
+    return parts
+
+
+def compare_versions(current: str, latest: str) -> int:
+    current_parts = parse_version(current)
+    latest_parts = parse_version(latest)
+    if not current_parts or not latest_parts:
+        return 0
+    length = max(len(current_parts), len(latest_parts))
+    for idx in range(length):
+        left = current_parts[idx] if idx < len(current_parts) else 0
+        right = latest_parts[idx] if idx < len(latest_parts) else 0
+        if left != right:
+            return 1 if left > right else -1
+    return 0
+
+
+def github_latest_release(repo: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    if not repo or "/" not in repo:
+        return None, "GitHub repo is missing or invalid."
+    url = f"https://api.github.com/repos/{repo}/releases/latest"
+    payload, error = request_json(
+        url,
+        headers={"Accept": "application/vnd.github+json"},
+    )
+    if error or not isinstance(payload, dict):
+        return None, error or "GitHub release fetch failed."
+    return payload, None
+
+
+def pick_release_asset(release: Dict[str, Any], match: str) -> Optional[Dict[str, Any]]:
+    assets = release.get("assets") or []
+    if not isinstance(assets, list):
+        return None
+    match_lower = match.strip().lower()
+    apk_assets = [asset for asset in assets if isinstance(asset, dict) and str(asset.get("name", "")).lower().endswith(".apk")]
+    if match_lower:
+        for asset in apk_assets:
+            if match_lower in str(asset.get("name", "")).lower():
+                return asset
+    return apk_assets[0] if apk_assets else None
+
+
 def build_subscription_userinfo(user_payload: Dict[str, Any]) -> str:
     used_raw = user_payload.get("used_traffic")
     total_raw = user_payload.get("data_limit")
@@ -577,14 +640,17 @@ def upsert_device(license_code: str, payload: DeviceHeartbeat, ip: str, user_age
 
         if existing:
             conn.execute(
-                "UPDATE devices SET ip=?, user_agent=?, app_version=?, model=?, os_version=?, "
-                "install_id=?, last_seen_at=?, seen_count=? WHERE id=?",
+                "UPDATE devices SET ip=?, user_agent=?, app_version=?, manufacturer=?, model=?, device=?, "
+                "os_version=?, abi=?, install_id=?, last_seen_at=?, seen_count=? WHERE id=?",
                 (
                     ip,
                     user_agent,
                     payload.app_version,
+                    payload.manufacturer,
                     payload.model,
+                    payload.device,
                     payload.os_version,
+                    payload.abi,
                     payload.install_id,
                     now_iso(),
                     int(existing["seen_count"]) + 1,
@@ -593,8 +659,9 @@ def upsert_device(license_code: str, payload: DeviceHeartbeat, ip: str, user_age
             )
         else:
             conn.execute(
-                "INSERT INTO devices (device_id, install_id, license_code, ip, user_agent, app_version, model, "
-                "os_version, first_seen_at, last_seen_at, seen_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
+                "INSERT INTO devices (device_id, install_id, license_code, ip, user_agent, app_version, manufacturer, "
+                "model, device, os_version, abi, first_seen_at, last_seen_at, seen_count) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
                 (
                     payload.device_id,
                     payload.install_id,
@@ -602,8 +669,11 @@ def upsert_device(license_code: str, payload: DeviceHeartbeat, ip: str, user_age
                     ip,
                     user_agent,
                     payload.app_version,
+                    payload.manufacturer,
                     payload.model,
+                    payload.device,
                     payload.os_version,
+                    payload.abi,
                     now_iso(),
                     now_iso(),
                 ),
@@ -984,6 +1054,9 @@ def settings(request: Request, _: str = Depends(require_admin)):
             "settings": settings_data,
             "allow_free_signup": parse_bool(settings_data.get("allow_free_signup"), True),
             "fields": SETTINGS_FIELDS,
+            "update_fields": UPDATE_FIELDS,
+            "update_enabled": parse_bool(settings_data.get("update_enabled"), True),
+            "update_mandatory": parse_bool(settings_data.get("update_mandatory"), False),
             "marzban_status": marzban_status,
             "marzban_message": marzban_message,
             "allowed_inbounds": allowed_inbounds,
@@ -1094,6 +1167,17 @@ async def save_feature_settings(request: Request, _: str = Depends(require_admin
     form = await request.form()
     allow_free_signup = "true" if form.get("allow_free_signup") == "on" else "false"
     set_app_setting("allow_free_signup", allow_free_signup)
+    return RedirectResponse(url="/settings", status_code=303)
+
+
+@app.post("/settings/updates")
+async def save_update_settings(request: Request, _: str = Depends(require_admin)):
+    form = await request.form()
+    set_app_setting("update_enabled", "true" if form.get("update_enabled") == "on" else "false")
+    set_app_setting("update_mandatory", "true" if form.get("update_mandatory") == "on" else "false")
+    for field in UPDATE_FIELDS:
+        key = field["key"]
+        set_app_setting(key, str(form.get(key, "")).strip())
     return RedirectResponse(url="/settings", status_code=303)
 
 
@@ -1329,3 +1413,50 @@ def public_settings():
         "allow_free_signup": parse_bool(settings_data.get("allow_free_signup"), True),
     }
     return payload
+
+
+@app.get("/api/update")
+def api_update(version: str = "", abi: str = ""):
+    settings_data = get_settings()
+    if not parse_bool(settings_data.get("update_enabled"), True):
+        return {
+            "update_available": False,
+            "mandatory": False,
+            "status": "disabled",
+        }
+
+    repo = settings_data.get("update_github_repo", "").strip()
+    release, error = github_latest_release(repo)
+    if error or not release:
+        return {
+            "update_available": False,
+            "mandatory": False,
+            "status": "error",
+            "message": error or "Failed to load release.",
+        }
+
+    tag = str(release.get("tag_name") or "").strip()
+    name = str(release.get("name") or "").strip()
+    latest_version = tag or name
+    match = settings_data.get("update_asset_match", "").strip()
+    asset = pick_release_asset(release, match)
+    url = None
+    if asset:
+        url = str(asset.get("browser_download_url") or "").strip()
+    if not url:
+        url = str(release.get("html_url") or "").strip()
+
+    mandatory = parse_bool(settings_data.get("update_mandatory"), False)
+    update_available = True
+    if version:
+        update_available = compare_versions(version, latest_version) < 0
+
+    return {
+        "update_available": update_available,
+        "mandatory": mandatory,
+        "latest_version": latest_version,
+        "title": name or latest_version,
+        "notes": str(release.get("body") or "").strip(),
+        "url": url,
+        "abi": abi,
+    }

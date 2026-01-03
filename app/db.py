@@ -58,8 +58,11 @@ def init_db() -> None:
         ip TEXT,
         user_agent TEXT,
         app_version TEXT,
+        manufacturer TEXT,
         model TEXT,
+        device TEXT,
         os_version TEXT,
+        abi TEXT,
         first_seen_at TEXT NOT NULL,
         last_seen_at TEXT NOT NULL,
         seen_count INTEGER NOT NULL DEFAULT 1,
@@ -75,6 +78,9 @@ def init_db() -> None:
         conn.executescript(schema)
         ensure_column(conn, "licenses", "group_name", "TEXT")
         ensure_column(conn, "licenses", "allowed_inbounds", "TEXT")
+        ensure_column(conn, "devices", "manufacturer", "TEXT")
+        ensure_column(conn, "devices", "device", "TEXT")
+        ensure_column(conn, "devices", "abi", "TEXT")
         # Ensure default groups exist
         rows = conn.execute("SELECT COUNT(*) AS total FROM groups").fetchone()
         if rows and rows["total"] == 0:
